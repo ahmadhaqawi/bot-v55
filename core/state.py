@@ -35,6 +35,19 @@ def load_state():
         log.error(f"[STATE LOAD ERROR] {e}")
 
 
+def _atomic_write(path, payload):
+    with tempfile.NamedTemporaryFile(dir=os.path.dirname(os.path.abspath(path)), delete=False) as f:
+        tmp = f.name
+    try:
+        with open(tmp, "wb") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
 def save_state():
     try:
         with state_lock:
