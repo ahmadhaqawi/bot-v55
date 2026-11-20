@@ -50,28 +50,14 @@ def efficiency_ratio(close_series, period=10):
 
 
 def relative_atr(df):
-
+    """نسبة ATR% الحالي إلى وسيط ATR% خلال ~100 شمعة سابقة."""
     try:
-
-        series = (
-            df["atr"] / df["close"]
-        ).iloc[-102:-2].dropna()
-
+        series = (df["atr"] / df["close"]).iloc[-102:-2].dropna()
         if len(series) < 60:
             return None
-
-        base = float(
-            series.median()
-        )
-
-        cur = float(
-            df["atr"].iloc[-2]
-            /
-            df["close"].iloc[-2]
-        )
-
+        base = float(series.median())
+        cur = float(df["atr"].iloc[-2] / df["close"].iloc[-2])
         return cur / base if base > 0 else None
-
     except Exception:
         return None
 
