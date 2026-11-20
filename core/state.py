@@ -12,12 +12,19 @@ from config import STATE_FILE, KSA_TZ
 log = logging.getLogger("state")
 
 state_lock = threading.RLock()
+trade_lock = threading.RLock()
 
 state = {}
 meta = {"paused": False, "last_report": "", "loss_alert": "",
         "profit_alert": "", "last_heartbeat": ""}
 daily_pnl = {"value": 0.0, "trades": 0, "wins": 0,
              "date": str(datetime.now(KSA_TZ).date())}
+
+# كاشات وقتية مشتركة بين process_symbol و market_filters_ok
+_funding_cache = {}
+_last_eval = {}
+_last_spread = {}
+_warned_external = set()
 
 
 # ==========================================
@@ -59,7 +66,6 @@ def _atomic_write(path, payload):
 
 
 def load_state():
-    global state, daily_pnl
     if not os.path.exists(STATE_FILE):
         return
     try:
@@ -73,8 +79,9 @@ def load_state():
         with state_lock:
             state.clear()
             state.update(loaded)
-            daily_pnl.clear()
-            daily_pnl.update(data.get("daily_pnl", daily_pnl))
+            if "daily_pnl" in data:
+                daily_pnl.clear()
+                daily_pnl.update(data["daily_pnl"])
             meta.update(data.get("meta", {}))
     except Exception as e:
         log.error(f"[STATE LOAD ERROR] {e}")
@@ -116,11 +123,11 @@ def update_sym_state(sym, updates):
     save_state()
 
 
-def reset_sym_state(sym, cooldown=True, mode=None):
+def reset_sym_state(sym, cooldown=True, mode="swing"):
     with state_lock:
         s = new_sym_state()
         s["last_exit_ts"] = datetime.now(KSA_TZ).timestamp() if cooldown else 0
-        s["last_exit_mode"] = mode
+        s["last_exit_mode"] = mode or "swing"
         state[sym] = s
     save_state()
 
