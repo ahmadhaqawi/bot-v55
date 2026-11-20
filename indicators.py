@@ -31,3 +31,112 @@ def adx(high, low, close, p=14):
     minus_di = 100 * (minus_dm.ewm(alpha=1 / p, adjust=False).mean() / (atr_val + 1e-9))
     dx = abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9) * 100
     return dx.ewm(alpha=1 / p, adjust=False).mean()
+
+
+def efficiency_ratio(close_series, period=10):
+    change = (
+        close_series
+        - close_series.shift(period)
+    ).abs()
+
+    volatility = (
+        close_series
+        - close_series.shift(1)
+    ).abs().rolling(
+        window=period
+    ).sum()
+
+    return change / (volatility + 1e-9)
+
+
+def relative_atr(df):
+
+    try:
+
+        series = (
+            df["atr"] / df["close"]
+        ).iloc[-102:-2].dropna()
+
+        if len(series) < 60:
+            return None
+
+        base = float(
+            series.median()
+        )
+
+        cur = float(
+            df["atr"].iloc[-2]
+            /
+            df["close"].iloc[-2]
+        )
+
+        return cur / base if base > 0 else None
+
+    except Exception:
+        return None
+
+
+def calculate_range_filter(
+    df,
+    period=100,
+    mult=3.0
+):
+
+    if len(df) < 3:
+        return 0
+
+    src = df["close"].iloc[:-1]
+
+    smooth = (
+        src.diff()
+        .abs()
+        .ewm(
+            span=period,
+            adjust=False
+        )
+        .mean()
+        .ewm(
+            span=2 * period - 1,
+            adjust=False
+        )
+        .mean()
+        * mult
+    )
+
+    values = src.to_numpy()
+    widths = smooth.to_numpy()
+
+    current = values[0]
+    previous = current
+
+    for price, width in zip(
+        values[1:],
+        widths[1:]
+    ):
+
+        previous = current
+
+        if price > previous:
+            current = max(
+                previous,
+                price - width
+            )
+        else:
+            current = min(
+                previous,
+                price + width
+            )
+
+    if (
+        current > previous
+        and values[-1] > current
+    ):
+        return 1
+
+    if (
+        current < previous
+        and values[-1] < current
+    ):
+        return -1
+
+    return 0
