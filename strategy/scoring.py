@@ -1,24 +1,39 @@
-# Signal Scoring
+# -*- coding: utf-8 -*-
+"""Scoring + signal evaluation."""
+from config import MIN_SIGNAL_SCORE, ENABLE_BREAKOUT
+from strategy.regime import build_context
+from strategy.pullback import pullback_signal
+from strategy.breakout import breakout_signal
+
 
 def score_signal(signal, ctx, df_15m):
-    """تقييم جودة الفرصة من 100 نقطة."""
-    last, h1, h4 = ctx["last"], ctx["last_1h"], ctx["last_4h"]
+    """يحسب درجة الفرصة (0-100). لا يعدّل القرار، فقط يعطي score."""
+    last = ctx["last"]
+    h1 = ctx["last_1h"]
+    h4 = ctx["last_4h"]
     side = signal["side"]
-    score, factors = 0, {}
+    score = 0
+    factors = {}
 
-    aligned = ((side == "LONG" and h1["ema9"] > h1["ema21"] and h4["close"] > h4["ema50"])
-               or (side == "SHORT" and h1["ema9"] < h1["ema21"] and h4["close"] < h4["ema50"]))
+    # 1) توافق الاتجاه (0-20)
+    aligned = (
+        (side == "LONG" and h1["ema9"] > h1["ema21"] and h4["close"] > h4["ema50"])
+        or (side == "SHORT" and h1["ema9"] < h1["ema21"] and h4["close"] < h4["ema50"])
+    )
     factors["trend"] = 20 if aligned else 6
     score += factors["trend"]
 
+    # 2) الحجم النسبي (0-15)
     vol_ratio = float(last["volume"] / last["vol_ma"]) if last["vol_ma"] else 0.0
     factors["volume"] = min(15, max(0, int(7.5 * vol_ratio)))
     score += factors["volume"]
 
+    # 3) قوة ADX (0-15)
     adx_value = float(last["adx"])
     factors["adx"] = min(15, max(0, int((adx_value - 12) * 0.75)))
     score += factors["adx"]
 
+    # 4) الزخم RSI (0-15)
     r = float(last["rsi"])
     if side == "LONG":
         momentum = 15 if 52 <= r <= 66 else (10 if 47 <= r < 52 or 66 < r <= 70 else 4)
@@ -27,13 +42,15 @@ def score_signal(signal, ctx, df_15m):
     factors["momentum"] = momentum
     score += momentum
 
+    # 5) جودة الشمعة (0-10)
     rng = max(float(last["high"] - last["low"]), 1e-12)
     body = abs(float(last["close"] - last["open"])) / rng
     factors["candle"] = min(10, int(body * 10))
     score += factors["candle"]
 
+    # 6) نوع الاستراتيجية (0-15)
     if signal.get("strategy") == "breakout":
-        factors["setup"] = 15 if vol_ratio >= 2.0 else 13
+        factors["setup"] = 15
     elif signal.get("strategy") == "pullback":
         ideal_rsi = (52 <= r <= 62) if side == "LONG" else (38 <= r <= 48)
         strong_candle = factors.get("candle", 0) >= 6
@@ -42,6 +59,7 @@ def score_signal(signal, ctx, df_15m):
         factors["setup"] = 12
     score += factors["setup"]
 
+    # 7) جودة الدخول (0-10)
     extension = abs(float(last["close"]) - float(last["ema21"])) / max(float(last["atr"]), 1e-12)
     factors["entry_quality"] = 10 if extension <= 0.8 else (7 if extension <= 1.4 else 3)
     score += factors["entry_quality"]
@@ -53,7 +71,10 @@ def score_signal(signal, ctx, df_15m):
 
 
 def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
-    """تقييم الاستراتيجيتين معاً واختيار الأعلى درجة."""
+    """
+    يدمج pullback + breakout، يعطي كل واحد score، يختار الأعلى.
+    يرجع (signal, {}) أو (None, reasons).
+    """
     ctx, reason = build_context(df_15m, df_1h, df_4h, timeframe)
     if ctx is None:
         return None, {"common": reason}
@@ -77,6 +98,7 @@ def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
 
     for s in candidates:
         score_signal(s, ctx, df_15m)
+
     sig = max(candidates, key=lambda x: x.get("score", 0))
     if sig["score"] < MIN_SIGNAL_SCORE:
         return None, {"common": "score_low"}
