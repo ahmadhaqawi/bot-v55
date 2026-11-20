@@ -61,3 +61,24 @@ def journal_append(row):
 
     except Exception as e:
         log.error(f"[JOURNAL] {e}")
+
+def log_paper_signal(sym, sig, blocked_by):
+    if not ENABLE_PAPER_LOG:
+        return
+    try:
+        with journal_lock:
+            new = not os.path.exists(PAPER_FILE)
+            with open(PAPER_FILE, "a", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=PAPER_FIELDS)
+                if new:
+                    w.writeheader()
+                w.writerow({
+                    "ts": datetime.now(KSA_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": short(sym), "side": sig["side"],
+                    "strategy": sig["strategy"], "score": sig.get("score", 0),
+                    "price": round(sig["price"], 6),
+                    "sl": round(sig["sl"], 6), "tp": round(sig["tp"], 6),
+                    "blocked_by": blocked_by,
+                })
+    except Exception as e:
+        log.warning(f"[PAPER] {e}")
