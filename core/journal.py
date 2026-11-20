@@ -36,3 +36,28 @@ def migrate_journal():
 
     except Exception as e:
         log.error(f"[JOURNAL MIGRATE] {e}")
+
+def journal_append(row):
+    try:
+        with journal_lock:
+            new = not os.path.exists(JOURNAL_FILE)
+
+            with open(
+                JOURNAL_FILE,
+                "a",
+                newline="",
+                encoding="utf-8"
+            ) as f:
+
+                w = csv.DictWriter(
+                    f,
+                    fieldnames=JOURNAL_FIELDS
+                )
+
+                if new:
+                    w.writeheader()
+
+                w.writerow(row)
+
+    except Exception as e:
+        log.error(f"[JOURNAL] {e}")
