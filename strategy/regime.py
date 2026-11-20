@@ -31,19 +31,6 @@ def detect_regime(df_15m, df_1h, df_4h, timeframe="15m"):
     return "range"
 
 
-def relative_atr(df):
-    """نسبة ATR% الحالي إلى وسيط ATR% خلال ~100 شمعة سابقة."""
-    try:
-        series = (df["atr"] / df["close"]).iloc[-102:-2].dropna()
-        if len(series) < 60:
-            return None
-        base = float(series.median())
-        cur = float(df["atr"].iloc[-2] / df["close"].iloc[-2])
-        return cur / base if base > 0 else None
-    except Exception:
-        return None
-
-
 def build_context(df_15m, df_1h, df_4h, timeframe="15m"):
     """الشروط العامة المشتركة مع معايرة تلقائية لوضع القناص (5m)."""
     if len(df_15m) < 70 or len(df_1h) < 60 or len(df_4h) < 60:
