@@ -1,4 +1,3 @@
-
 # exchange.py — طبقة المنصة (Binance USDT-M Futures): اتصال، أسعار، رصيد، أوامر، حماية، بيانات
 # لا تحتوي أي منطق استراتيجية. تعتمد فقط على notifier و indicators و config.
 import math
@@ -162,57 +161,3 @@ def get_open_position(ex, sym):
     if len(matches) > 1:
         raise ValueError("multiple positions for one instrument")
     return matches[0] if matches else None
-
-
-def cancel_pending(ex, sym):
-    try:
-        cancel_algo_ids(ex, sym, [a["id"] for a in get_algos(ex, sym)])
-        for o in ex.fetch_open_orders(sym):
-            try:
-                ex.cancel_order(o['id'], sym)
-            except Exception:
-                pass
-    except Exception as e:
-        log.warning(f"[CANCEL PENDING] {sym}: {e}")
-
-
-def get_actual_fees(ex, sym, pos_data):
-    """مجموع الرسوم الفعلية (USDT). None إذا لا تتوفر أو للمركز المتبنّى."""
-    if (pos_data.get("strategy") or "") == "adopted" or not pos_data.get("opened_ts"):
-        return None
-    try:
-        since = int(pos_data["opened_ts"] * 1000) - 30000
-        trades = ex.fetch_my_trades(sym, since=since, limit=100)
-        total, n = 0.0, 0
-        for t in trades:
-            fee = t.get("fee") or {}
-            cost = fee.get("cost")
-            if cost is None:
-                continue
-            cur = (fee.get("currency") or "").upper()
-            if cur and cur not in ("USDT", "USDC"):
-                continue
-            total += abs(float(cost))
-            n += 1
-        return total if n > 0 else None
-    except Exception as e:
-        log.warning(f"[FEES] {sym}: {e}")
-        return None
-
-
-def get_exit_price(ex, sym, pos_data):
-    try:
-        close_side = 'sell' if pos_data["position"] == "LONG" else 'buy'
-        if pos_data.get("partial_1_taken") or pos_data.get("partial_2_taken"):
-            since = int((pos_data.get("leg_ts") or 0) * 1000) + 1500
-        else:
-            since = int((pos_data.get("opened_ts") or 0) * 1000) - 8000
-        trades = ex.fetch_my_trades(sym, since=since, limit=80)
-        trades = [t for t in trades if not t.get("timestamp") or t["timestamp"] >= since]
-        fills = [t for t in trades if t.get('side') == close_side and t.get('price') and t.get('amount')]
-        total = sum(float(t['amount']) for t in fills)
-        if total > 0:
-            return sum(float(t['price']) * float(t['amount']) for t in fills) / total
-    except Exception as e:
-        log.warning(f"[EXIT PRICE] {sym}: {e}")
-    return None
