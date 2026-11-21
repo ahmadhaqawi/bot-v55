@@ -1,8 +1,8 @@
+# telegram/messages.py — تنسيق رسائل الدخول والخروج
 from datetime import datetime
 
-from config import (
-    LEVERAGE
-)
+from config import LEVERAGE
+from telegram.constants import KSA_TZ, STRAT_LABEL, REASONS
 
 
 def short(sym):
@@ -19,7 +19,8 @@ def fmt(value, digits=2):
         return "-"
 
 
-def msg_entry(sym, side, price, sl, tp, margin, real_order, regime="", strategy="", equity=None, score=0, lev=LEVERAGE, mode="swing"):
+def msg_entry(sym, side, price, sl, tp, margin, real_order, regime="", strategy="",
+              equity=None, score=0, lev=LEVERAGE, mode="swing"):
     title = "🟢 <b>شراء (LONG)</b>" if side == "LONG" else "🔴 <b>بيع (SHORT)</b>"
     if mode == "sniper":
         title += " 🎯 [قناص]"
@@ -37,13 +38,15 @@ def msg_entry(sym, side, price, sl, tp, margin, real_order, regime="", strategy=
     if strategy:
         regime_txt += f"\n🧠 <b>الاستراتيجية:</b> {STRAT_LABEL.get(strategy, strategy)}"
     score_txt = f"\n🎯 <b>الدرجة:</b> {score}/100" if score else ""
-    return (f"{title}\n{status}{regime_txt}{score_txt}\n"
-            f"━━━━━━━━━━━━━━━\n"
-            f"🪙 <code>{short(sym)}</code> | 💵 <code>{fmt(price)}</code>\n"
-            f"⚙️ {lev}x | الهامش: {margin:.2f} USDT\n"
-            f"🛑 SL: <code>{fmt(sl)}</code> ({sl_pct:.2f}%) → مخاطرة {risk_usd:.2f}{risk_pct_txt}\n"
-            f"🎯 TP: <code>{fmt(tp)}</code> ({tp_pct:.2f}%) → عائد +{reward_usd:.2f}\n"
-            f"⏰ {now_str}")
+    return (
+        f"{title}\n{status}{regime_txt}{score_txt}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🪙 <code>{short(sym)}</code> | 💵 <code>{fmt(price)}</code>\n"
+        f"⚙️ {lev}x | الهامش: {margin:.2f} USDT\n"
+        f"🛑 SL: <code>{fmt(sl)}</code> ({sl_pct:.2f}%) → مخاطرة {risk_usd:.2f}{risk_pct_txt}\n"
+        f"🎯 TP: <code>{fmt(tp)}</code> ({tp_pct:.2f}%) → عائد +{reward_usd:.2f}\n"
+        f"⏰ {now_str}"
+    )
 
 
 def msg_exit(sym, side, exit_price, entry_price, total_pnl, final_leg_pnl, margin, r_mult,
@@ -60,10 +63,12 @@ def msg_exit(sym, side, exit_price, entry_price, total_pnl, final_leg_pnl, margi
         extra += f"🧾 رسوم: {fees:.2f} ({'فعلية' if fees_src == 'actual' else 'تقديرية'})\n"
     if stop_slip_usd is not None and stop_slip_usd >= 0:
         extra += f"⚡ انزلاق وقف: {stop_slip_usd:.2f} USDT ({stop_slip_r:.2f}R)\n"
-    return (f"{title}\n━━━━━━━━━━━━━━━\n"
-            f"🪙 <code>{short(sym)}</code> ({side})\n"
-            f"📥 {fmt(entry_price)} → 📤 {fmt(exit_price)}\n"
-            f"📊 هامش: {pct:+.2f}% | R: {r_mult:+.2f}\n"
-            f"💰 صافي: <b>{total_pnl:+.2f} USDT</b>\n"
-            f"📝 {REASONS.get(reason, reason)} | {STRAT_LABEL.get(strategy, strategy or '—')}\n"
-            f"{extra}━━━━━━━━━━━━━━━")
+    return (
+        f"{title}\n━━━━━━━━━━━━━━━\n"
+        f"🪙 <code>{short(sym)}</code> ({side})\n"
+        f"📥 {fmt(entry_price)} → 📤 {fmt(exit_price)}\n"
+        f"📊 هامش: {pct:+.2f}% | R: {r_mult:+.2f}\n"
+        f"💰 صافي: <b>{total_pnl:+.2f} USDT</b>\n"
+        f"📝 {REASONS.get(reason, reason)} | {STRAT_LABEL.get(strategy, strategy or '—')}\n"
+        f"{extra}━━━━━━━━━━━━━━━"
+    )
