@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Indicators module — 9 functions, no duplication."""
+"""Indicators module — 10 functions, no duplication."""
 import pandas as pd
 import numpy as np
 
@@ -80,6 +80,82 @@ def calculate_range_filter(df, period=100, mult=3.0):
     if current > previous and values[-1] > current:
         return 1
     if current < previous and values[-1] < current:
+        return -1
+    return 0
+
+
+def calculate_zp_rf_rqk_signal(df, period=100, mult=3.0, h=8.0, r=8.0, x0=25, expiry=3):
+    """
+    يحسب إشارة Range Filter (Default) + Rational Quadratic Kernel (RQK)
+    على الشموع المغلقة فقط (بدون Repaint).
+    يرجع: 1 لـ LONG، -1 لـ SHORT، 0 لعدم وجود إشارة.
+    """
+    n_lags = x0 + 2
+    if len(df) < max(period, n_lags + 5):
+        return 0
+
+    src = df["close"].iloc[:-1].astype(float)
+    wper = period * 2 - 1
+    avrng = src.diff().abs().ewm(span=period, adjust=False).mean()
+    smrng = avrng.ewm(span=wper, adjust=False).mean() * mult
+
+    s_vals = src.to_numpy()
+    r_vals = smrng.to_numpy()
+    n = len(s_vals)
+
+    filt = np.copy(s_vals)
+    upward = np.zeros(n)
+    downward = np.zeros(n)
+
+    for i in range(1, n):
+        prev = filt[i - 1]
+        if s_vals[i] > prev:
+            filt[i] = prev if (s_vals[i] - r_vals[i] < prev) else (s_vals[i] - r_vals[i])
+        else:
+            filt[i] = prev if (s_vals[i] + r_vals[i] > prev) else (s_vals[i] + r_vals[i])
+
+        if filt[i] > prev:
+            upward[i] = upward[i - 1] + 1
+            downward[i] = 0
+        elif filt[i] < prev:
+            downward[i] = downward[i - 1] + 1
+            upward[i] = 0
+        else:
+            upward[i] = upward[i - 1]
+            downward[i] = downward[i - 1]
+
+    # حساب RQK لآخر شمعتين مغلقتين فقط (سريع جداً)
+    idx = np.arange(n_lags, dtype=float)
+    weights = np.power(1.0 + (idx ** 2) / ((h ** 2) * 2.0 * r), -r)
+    weights /= weights.sum()
+
+    yhat_now = float(np.dot(s_vals[-n_lags:][::-1], weights))
+    yhat_prev = float(np.dot(s_vals[-n_lags - 1:-1][::-1], weights))
+    rqk_up = yhat_now > yhat_prev
+    rqk_dn = yhat_now < yhat_prev
+
+    # شروط Range Filter لآخر expiry+1 شمعة
+    rf_up = (s_vals > filt) & (np.r_[False, s_vals[1:] != s_vals[:-1]]) & (upward > 0)
+    rf_dn = (s_vals < filt) & (np.r_[False, s_vals[1:] != s_vals[:-1]]) & (downward > 0)
+
+    # عدّاد الشموع المتتالية عند آخر شمعة مغلقة
+    up_cnt = 0
+    for k in range(n - 1, -1, -1):
+        if rf_up[k]:
+            up_cnt += 1
+        else:
+            break
+
+    dn_cnt = 0
+    for k in range(n - 1, -1, -1):
+        if rf_dn[k]:
+            dn_cnt += 1
+        else:
+            break
+
+    if rf_up[-1] and rqk_up and 1 <= up_cnt <= expiry:
+        return 1
+    if rf_dn[-1] and rqk_dn and 1 <= dn_cnt <= expiry:
         return -1
     return 0
 
