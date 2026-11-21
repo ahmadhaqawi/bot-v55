@@ -14,11 +14,16 @@ def breakout_signal(ctx, df_15m):
     close, high, low = float(last["close"]), float(last["high"]), float(last["low"])
     rng = high - low
     vol_ok = last["volume"] > BO_VOL_MULT * last["vol_ma"]
+    
     if ctx["long_dir"]:
-        if not close > hh:
+        # تساهل بسيط: السماح بالاختراق حتى لو أغلق السعر قريباً جداً من القمة
+        if not close > hh * 0.999: 
             return None, "bo_no_breakout"
-        if not (last_1h["ema9"] > last_1h["ema21"] and last_1h["close"] > last_1h["ema50"]):
-            return None, "bo_trend_mismatch"
+            
+        # تعديل: إزالة شرط ترند الساعة
+        # if not (last_1h["ema9"] > last_1h["ema21"] and last_1h["close"] > last_1h["ema50"]):
+        #     return None, "bo_trend_mismatch"
+            
         if not vol_ok:
             return None, "bo_low_volume"
         if rng <= 0 or (close - low) / rng < BO_BODY_POS:
@@ -28,12 +33,17 @@ def breakout_signal(ctx, df_15m):
         if close - ctx["ema21"] > BO_MAX_EXT_ATR * ctx["atr_val"]:
             return None, "bo_extended"
         return _make_signal("LONG", ctx, "breakout"), None
+        
     if not ctx["short_dir"]:
         return None, "direction_mismatch"
-    if not close < ll:
+        
+    if not close < ll * 1.001:
         return None, "bo_no_breakout"
-    if not (last_1h["ema9"] < last_1h["ema21"] and last_1h["close"] < last_1h["ema50"]):
-        return None, "bo_trend_mismatch"
+        
+    # تعديل: إزالة شرط ترند الساعة
+    # if not (last_1h["ema9"] < last_1h["ema21"] and last_1h["close"] < last_1h["ema50"]):
+    #     return None, "bo_trend_mismatch"
+        
     if not vol_ok:
         return None, "bo_low_volume"
     if rng <= 0 or (high - close) / rng < BO_BODY_POS:
