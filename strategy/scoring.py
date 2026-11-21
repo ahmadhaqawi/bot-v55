@@ -4,6 +4,7 @@ from config import MIN_SIGNAL_SCORE, ENABLE_BREAKOUT
 from strategy.regime import build_context
 from strategy.pullback import pullback_signal
 from strategy.breakout import breakout_signal
+from strategy.rf_rqk import rf_rqk_signal
 
 
 def score_signal(signal, ctx, df_15m):
@@ -49,9 +50,10 @@ def score_signal(signal, ctx, df_15m):
     score += factors["candle"]
 
     # 6) نوع الاستراتيجية (0-15)
-    if signal.get("strategy") == "breakout":
+    strat = signal.get("strategy")
+    if strat in ("breakout", "rf_rqk"):
         factors["setup"] = 15
-    elif signal.get("strategy") == "pullback":
+    elif strat == "pullback":
         ideal_rsi = (52 <= r <= 62) if side == "LONG" else (38 <= r <= 48)
         strong_candle = factors.get("candle", 0) >= 6
         factors["setup"] = 15 if (ideal_rsi and strong_candle) else 13
@@ -72,7 +74,7 @@ def score_signal(signal, ctx, df_15m):
 
 def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
     """
-    يدمج pullback + breakout، يعطي كل واحد score، يختار الأعلى.
+    يدمج pullback + breakout + rf_rqk، يعطي كل واحد score، يختار الأعلى.
     يرجع (signal, {}) أو (None, reasons).
     """
     ctx, reason = build_context(df_15m, df_1h, df_4h, timeframe)
@@ -90,8 +92,12 @@ def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
         if sig_bo:
             candidates.append(sig_bo)
 
+    sig_rf, r_rf = rf_rqk_signal(ctx, df_15m)
+    if sig_rf:
+        candidates.append(sig_rf)
+
     if not candidates:
-        reasons = {"pullback": r_pull}
+        reasons = {"pullback": r_pull, "rf_rqk": r_rf}
         if ENABLE_BREAKOUT:
             reasons["breakout"] = r_bo
         return None, reasons
