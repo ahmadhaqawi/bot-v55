@@ -3,16 +3,28 @@
 import logging
 import queue
 import threading
-from datetime import datetime
-
-import numpy as np
 import requests
 
-from config import TELEGRAM_BOT_TOKEN, AUTHORIZED_CHATS, KSA_TZ, LEVERAGE
+from config import (
+    TELEGRAM_BOT_TOKEN,
+    AUTHORIZED_CHATS
+)
 
 log = logging.getLogger("bot")
 
 _send_queue = queue.Queue(maxsize=1000)
+
+def send(...):
+    ...
+
+def _send_worker():
+    ...
+
+def start_sender():
+    ...
+
+def start_sender():
+    ...
 
 
 def send(msg, chat_id=None):
