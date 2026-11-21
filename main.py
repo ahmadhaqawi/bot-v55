@@ -610,7 +610,7 @@ def process_symbol(ex, sym, collected_candidates=None):
             return
 
         tf_ms = TF_MS["5m" if mode == "sniper" else "15m"]
-        max_age_sec = SNIPER["max_signal_age_sec"] if mode == "sniper" else 240
+        max_age_sec = SNIPER["max_signal_age_sec"] if mode == "sniper" else 900
         if (time.time() * 1000 - (signal.get("candle_ts", 0) + tf_ms)) > max_age_sec * 1000:
             note_block(sym, "signal_expired")
             return
