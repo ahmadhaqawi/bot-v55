@@ -40,14 +40,13 @@ def create_exchange():
     if not USE_SANDBOX and not ALLOW_LIVE_TRADING:
         raise RuntimeError("Live trading requires ALLOW_LIVE_TRADING=true")
     ex = ccxt.binanceusdm({
-        "apiKey": BINANCE_API_KEY,
-        "secret": BINANCE_SECRET,
-        "enableRateLimit": True,
-        "options": {"defaultType": "future"},
-        "timeout": 20000,
+        'apiKey': BINANCE_API_KEY,
+        'secret': BINANCE_SECRET,
+        'enableRateLimit': True,
+        'timeout': 20000,
     })
     if USE_SANDBOX:
-        ex.set_sandbox_mode(True)
+        ex.enable_demo_trading(True)
     return ex
 
 
