@@ -1,33 +1,93 @@
 # exchange.py — طبقة المنصة (Binance USDT-M Futures): اتصال، أسعار، رصيد، أوامر، حماية، بيانات
 # لا تحتوي أي منطق استراتيجية. تعتمد فقط على notifier و indicators و config.
+# exchange.py — طبقة المنصة (Binance USDT-M Futures)
+
 import math
 import time
 import logging
 import threading
 
 import ccxt
-import pandas as pd
 
 from config import (
-    BINANCE_API_KEY, BINANCE_SECRET, USE_SANDBOX, ALLOW_LIVE_TRADING,
-    LEVERAGE, MARGIN_MODE, KER_PERIOD, TF_MS,
+    BINANCE_API_KEY,
+    BINANCE_SECRET,
+    USE_SANDBOX,
+    ALLOW_LIVE_TRADING,
 )
-from notifier import send, short
-from indicators import add_indicators, calculate_range_filter, efficiency_ratio
 
 log = logging.getLogger("bot")
 
-# الكاشات تعيش هنا، والملفات الأخرى تستوردها بالاسم (نفس الكائن، لا نسخة)
-_data_cache = {}
 _price_cache = {}
 _balance_cache = {}
+
 _balance_lock = threading.Lock()
-_btc_bias_cache = {"ts": 0, "value": "neutral"}
 
-# أسماء دوال ccxt الضمنية لـ Binance Algo Service (POST/DELETE /fapi/v1/algoOrder, GET open algo orders)
-_ALGO_METHODS = ("fapiPrivatePostAlgoOrder", "fapiPrivateDeleteAlgoOrder", "fapiPrivateGetOpenAlgoOrders")
+_btc_bias_cache = {
+    "ts": 0,
+    "value": "neutral"
+}
+
+_ALGO_METHODS = (
+    "fapiPrivatePostAlgoOrder",
+    "fapiPrivateDeleteAlgoOrder",
+    "fapiPrivateGetOpenAlgoOrders"
+)
 
 
+def _valid_trigger(value):
+    try:
+        v = float(value or 0)
+        return math.isfinite(v) and v > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def create_exchange():
+
+    if not USE_SANDBOX and not ALLOW_LIVE_TRADING:
+        raise RuntimeError(
+            "Live trading requires ALLOW_LIVE_TRADING=true"
+        )
+
+    ex = ccxt.binanceusdm({
+        "apiKey": BINANCE_API_KEY,
+        "secret": BINANCE_SECRET,
+        "enableRateLimit": True,
+        "options": {
+            "defaultType": "future"
+        },
+        "timeout": 20000
+    })
+
+    if USE_SANDBOX:
+        ex.set_sandbox_mode(True)
+
+    return ex
+
+
+def init_exchange():
+
+    ex = create_exchange()
+
+    ex.load_markets()
+
+    verify_algo_support(ex)
+
+    return ex
+
+
+def verify_algo_support(ex):
+
+    missing = [
+        m for m in _ALGO_METHODS
+        if not hasattr(ex, m)
+    ]
+
+    if missing:
+        raise RuntimeError(
+            f"ccxt الحالية لا تدعم Binance Algo endpoints: {missing}"
+        )
 def create_exchange():
     if not USE_SANDBOX and not ALLOW_LIVE_TRADING:
         raise RuntimeError("Live trading requires ALLOW_LIVE_TRADING=true")
