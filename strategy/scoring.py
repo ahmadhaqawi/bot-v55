@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """Scoring + signal evaluation."""
 from config import MIN_SIGNAL_SCORE, ENABLE_BREAKOUT
@@ -21,7 +22,8 @@ def score_signal(signal, ctx, df_15m):
         (side == "LONG" and h1["ema9"] > h1["ema21"] and h4["close"] > h4["ema50"])
         or (side == "SHORT" and h1["ema9"] < h1["ema21"] and h4["close"] < h4["ema50"])
     )
-    factors["trend"] = 20 if aligned else 6
+    # تعديل: زيادة النقاط لضمان الوصول للحد الأدنى
+    factors["trend"] = 20 if aligned else 12
     score += factors["trend"]
 
     # 2) الحجم النسبي (0-15)
@@ -31,15 +33,15 @@ def score_signal(signal, ctx, df_15m):
 
     # 3) قوة ADX (0-15)
     adx_value = float(last["adx"])
-    factors["adx"] = min(15, max(0, int((adx_value - 12) * 0.75)))
+    factors["adx"] = min(15, max(0, int((adx_value - 10) * 1.0))) # تعديل: أسهل في جمع النقاط
     score += factors["adx"]
 
     # 4) الزخم RSI (0-15)
     r = float(last["rsi"])
     if side == "LONG":
-        momentum = 15 if 52 <= r <= 66 else (10 if 47 <= r < 52 or 66 < r <= 70 else 4)
+        momentum = 15 if 45 <= r <= 70 else (10 if 35 <= r < 45 or 70 < r <= 75 else 6)
     else:
-        momentum = 15 if 34 <= r <= 48 else (10 if 30 <= r < 34 or 48 < r <= 53 else 4)
+        momentum = 15 if 30 <= r <= 55 else (10 if 25 <= r < 30 or 55 < r <= 65 else 6)
     factors["momentum"] = momentum
     score += momentum
 
@@ -54,8 +56,8 @@ def score_signal(signal, ctx, df_15m):
     if strat in ("breakout", "rf_rqk"):
         factors["setup"] = 15
     elif strat == "pullback":
-        ideal_rsi = (52 <= r <= 62) if side == "LONG" else (38 <= r <= 48)
-        strong_candle = factors.get("candle", 0) >= 6
+        ideal_rsi = (45 <= r <= 65) if side == "LONG" else (35 <= r <= 55)
+        strong_candle = factors.get("candle", 0) >= 5
         factors["setup"] = 15 if (ideal_rsi and strong_candle) else 13
     else:
         factors["setup"] = 12
@@ -66,6 +68,9 @@ def score_signal(signal, ctx, df_15m):
     factors["entry_quality"] = 10 if extension <= 0.8 else (7 if extension <= 1.4 else 3)
     score += factors["entry_quality"]
 
+    # إعطاء نقاط أساسية (Bonus) لتجاوز السوق العرضي
+    score += 10 
+
     signal["score"] = min(100, int(score))
     signal["score_factors"] = factors
     signal["volume_ratio"] = round(vol_ratio, 2)
@@ -73,10 +78,6 @@ def score_signal(signal, ctx, df_15m):
 
 
 def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
-    """
-    يدمج pullback + breakout + rf_rqk، يعطي كل واحد score، يختار الأعلى.
-    يرجع (signal, {}) أو (None, reasons).
-    """
     ctx, reason = build_context(df_15m, df_1h, df_4h, timeframe)
     if ctx is None:
         return None, {"common": reason}
