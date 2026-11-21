@@ -1,4 +1,10 @@
-# Pullback Strategy
+# strategy/pullback.py — استراتيجية الارتداد (Pullback)
+from config import (
+    MIN_VOL_MULT, NEAR_EMA21_PCT, NEAR_EMA50_PCT,
+    RSI_LONG_MIN, RSI_LONG_MAX, RSI_SHORT_MIN, RSI_SHORT_MAX,
+)
+from strategy.regime import _make_signal
+
 
 def pullback_signal(ctx):
     last, prev, last_1h = ctx["last"], ctx["prev"], ctx["last_1h"]
