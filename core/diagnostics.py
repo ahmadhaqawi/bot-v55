@@ -15,7 +15,8 @@ diag_lock = threading.Lock()
 def _diag_blank(date=""):
     return {
         "date": date, "evaluated": 0, "signals": 0, "opened": 0, "signals_by": {},
-        "reasons": {}, "reasons_pullback": {}, "reasons_breakout": {}, "blocks": {},
+        "reasons": {}, "reasons_pullback": {}, "reasons_breakout": {},
+        "reasons_rf_rqk": {}, "blocks": {},
     }
 
 
@@ -64,6 +65,8 @@ REASON_LABELS = {
     "bo_rsi": "RSI خارج نطاق الاختراق",
     "bo_extended": "السعر بعيد عن EMA21 (مطاردة)",
     "bo_disabled": "الاختراق معطّل",
+    "rf_rqk_no_signal": "لا توجد إشارة RF+RQK",
+    "rf_rqk_trend_mismatch": "اتجاه الساعة لا يدعم RF+RQK",
     "score_low": "درجة الفرصة أقل من الحد المطلوب",
     "ai_rejected": "رفض الذكاء الاصطناعي (احتمال منخفض)",
 }
@@ -99,12 +102,13 @@ def note_eval(sym, signal, reasons):
             text = label(r)
         else:
             parts = []
-            for strat in ("pullback", "breakout"):
+            for strat in ("pullback", "breakout", "rf_rqk"):
                 if strat in reasons:
                     r = reasons[strat]
                     key = f"reasons_{strat}"
                     diag[key][r] = diag[key].get(r, 0) + 1
-                    parts.append(f"{STRAT_LABEL[strat]}: {label(r)}")
+                    strat_name = STRAT_LABEL.get(strat, "RF+RQK" if strat == "rf_rqk" else strat)
+                    parts.append(f"{strat_name}: {label(r)}")
             text = " | ".join(parts)
         if VERBOSE_REJECT_LOG:
             log.info(f"[REJECT] {short(sym)} → {text}")
