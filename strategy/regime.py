@@ -1,6 +1,16 @@
-# ==========================================
-# الاستراتيجية
-# ==========================================
+# strategy/regime.py — تحديد اتجاه السوق وبناء سياق الإشارة
+import pandas as pd
+
+from config import (
+    REGIME_ADX4_STRONG, REGIME_ADX4_WEAK, REGIME_ADX1_STRONG,
+    SNIPER, MIN_ATR_PCT, MIN_ADX, ATR_SL_MULT, MIN_SL_PCT, MAX_SL_PCT,
+    RR_RATIO, MAX_ATR_PCT, ATR_HARD_FLOOR, REL_ATR_RATIO,
+    KER_PERIOD, ENABLE_KER_FILTER, MIN_KER,
+)
+from exchange import _valid_trigger
+from indicators import relative_atr, efficiency_ratio, calculate_range_filter
+
+
 def detect_regime(df_15m, df_1h, df_4h, timeframe="15m"):
     if len(df_4h) < 50 or len(df_1h) < 50:
         return "unknown"
@@ -126,6 +136,8 @@ def _make_signal(side, ctx, strategy):
         sl, tp = p * (1 - sp), p * (1 + tp_pct)
     else:
         sl, tp = p * (1 + sp), p * (1 - tp_pct)
-    return {"side": side, "price": p, "sl_pct": sp, "sl": sl, "tp": tp,
-            "regime": ctx["regime"], "strategy": strategy, "ker": ctx.get("ker"),
-            "candle_ts": ctx.get("candle_ts", 0)}
+    return {
+        "side": side, "price": p, "sl_pct": sp, "sl": sl, "tp": tp,
+        "regime": ctx["regime"], "strategy": strategy, "ker": ctx.get("ker"),
+        "candle_ts": ctx.get("candle_ts", 0),
+    }
