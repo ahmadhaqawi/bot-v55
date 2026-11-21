@@ -67,6 +67,10 @@ log = logging.getLogger("bot")
 _lock_fh = None
 _tp_retry = {}
 
+# حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config
+EFFECTIVE_MAX_OPEN = max(MAX_OPEN_POSITIONS, 8)
+EFFECTIVE_MAX_SAME_DIR = max(MAX_SAME_DIRECTION, 6)
+
 
 # ==========================================
 # Flask Health & Diagnostics
@@ -432,7 +436,89 @@ def entries_allowed(ex):
     return True, ""
 
 
-def process_symbol(ex, sym):
+def execute_ranked_entry(ex, candidate):
+    sym = candidate["sym"]
+    signal = candidate["signal"]
+    mode = candidate["mode"]
+    pos_data = candidate["pos_data"]
+
+    with trade_lock:
+        opens = open_positions_snapshot()
+        with state_lock:
+            current = state.get(sym, {})
+        side = signal["side"]
+        if (current.get("position") or current.get("last_exit_ts") != pos_data.get("last_exit_ts")
+                or len(opens) >= EFFECTIVE_MAX_OPEN
+                or sum(v.get("position") == side for v in opens.values()) >= EFFECTIVE_MAX_SAME_DIR
+                or (mode == "sniper" and sum(v.get("mode") == "sniper" for v in opens.values()) >= SNIPER["max_open"])
+                or sector_limit_reached(opens, sym, side)):
+            return
+        if meta.get("paused") or get_open_position(ex, sym) is not None:
+            return
+        equity_now, free_margin = get_balances(ex, force=True)
+        ok, gate = entries_allowed(ex)
+        if not ok:
+            note_block(sym, gate)
+            return
+
+        max_slip = SNIPER["max_entry_slip"] if mode == "sniper" else max(MAX_ENTRY_SLIPPAGE_PCT, 0.18 * signal["sl_pct"])
+        t_params = get_trade_params(mode)
+        sl_pct = max(t_params["min_sl"], min(t_params["max_sl"], signal["sl_pct"]))
+        tp_rr, lev_eff, risk_eff = t_params["rr"], t_params["leverage"], t_params["risk_pct"]
+
+        margin = compute_margin_scored(
+            equity=equity_now, sl_pct=sl_pct, signal_score=signal.get("score", 0),
+            free_margin=free_margin, risk_pct=risk_eff, leverage=lev_eff,
+            ai_prob=None if mode == "sniper" else candidate.get("ai_prob"),
+            ai_active=ai_state.AI_IS_ACTIVE,
+            min_margin_usdt=MIN_MARGIN_USDT, max_margin_usdt=MAX_MARGIN_USDT,
+            max_margin_pct_equity=MAX_MARGIN_PCT_EQUITY,
+        )
+        if margin <= 0:
+            note_block(sym, "margin_too_small")
+            log_paper_signal(sym, signal, "margin_too_small")
+            return
+        actual_price = get_current_price(ex, sym, 0)
+        if not actual_price or abs(actual_price - signal["price"]) / signal["price"] > max_slip:
+            reason = "slippage" if actual_price else "ticker_unavailable"
+            note_block(sym, reason)
+            log_paper_signal(sym, signal, reason)
+            return
+        d = 1 if side == "LONG" else -1
+        sl, tp = actual_price * (1 - d * sl_pct), actual_price * (1 + d * sl_pct * tp_rr)
+        success, info, entry, contracts = open_position(ex, sym, side, actual_price, sl, tp, margin, leverage=lev_eff)
+        now = time.time()
+        if success:
+            note_opened()
+            with state_lock:
+                state[sym].update({
+                    "position": side, "entry": entry, "sl": sl, "tp": tp,
+                    "initial_sl": sl, "initial_risk": abs(entry - sl),
+                    "contracts": contracts, "initial_contracts": contracts,
+                    "margin": margin, "opened_ts": now, "leg_ts": now,
+                    "realized_pnl": 0.0, "realized_fees_est": 0.0,
+                    "planned_entry": actual_price, "last_notified_sl": None,
+                    "breakeven_hit": False, "partial_1_taken": False, "partial_2_taken": False,
+                    "regime": signal.get("regime", ""), "strategy": signal.get("strategy", ""),
+                    "mode": mode, "signal_score": signal.get("score", 0),
+                    "score_factors": signal.get("score_factors", {}),
+                    "volume_ratio": signal.get("volume_ratio", 0), "ker": signal.get("ker"),
+                })
+        else:
+            note_block(sym, "open_failed")
+            with state_lock:
+                state[sym]["last_exit_ts"] = now
+                state[sym]["last_exit_mode"] = mode
+        save_state()
+    caption = msg_entry(sym, side, entry, sl, tp, margin, success,
+                        signal.get("regime", ""), signal.get("strategy", ""),
+                        equity_now, signal.get("score", 0), lev=lev_eff, mode=mode)
+    if not success:
+        caption += f"\n❌ {info}"
+    send(caption)
+
+
+def process_symbol(ex, sym, collected_candidates=None):
     try:
         with trade_lock:
             with state_lock:
@@ -468,7 +554,7 @@ def process_symbol(ex, sym):
         if not ok:
             set_last_reason(sym, gate)
             return
-        if len(open_positions_snapshot()) >= MAX_OPEN_POSITIONS:
+        if len(open_positions_snapshot()) >= EFFECTIVE_MAX_OPEN:
             set_last_reason(sym, "max_positions")
             return
 
@@ -531,7 +617,7 @@ def process_symbol(ex, sym):
 
         side = signal["side"]
         opens = open_positions_snapshot()
-        if sum(1 for v in opens.values() if v.get("position") == side) >= MAX_SAME_DIRECTION:
+        if sum(1 for v in opens.values() if v.get("position") == side) >= EFFECTIVE_MAX_SAME_DIR:
             note_block(sym, "max_same_direction")
             log_paper_signal(sym, signal, "max_same_direction")
             return
@@ -552,11 +638,6 @@ def process_symbol(ex, sym):
             log_paper_signal(sym, signal, m_reason)
             return
 
-        max_slip = SNIPER["max_entry_slip"] if mode == "sniper" else max(MAX_ENTRY_SLIPPAGE_PCT, 0.18 * signal["sl_pct"])
-        t_params = get_trade_params(mode)
-        sl_pct = max(t_params["min_sl"], min(t_params["max_sl"], signal["sl_pct"]))
-        tp_rr, lev_eff, risk_eff = t_params["rr"], t_params["leverage"], t_params["risk_pct"]
-
         ai_prob = None
         if ai_state.AI_IS_ACTIVE:
             try:
@@ -572,72 +653,18 @@ def process_symbol(ex, sym):
                 log.warning(f"[AI ERROR] {e}")
                 ai_prob = None
 
-        with trade_lock:
-            opens = open_positions_snapshot()
-            with state_lock:
-                current = state.get(sym, {})
-            if (current.get("position") or current.get("last_exit_ts") != pos_data.get("last_exit_ts")
-                    or len(opens) >= MAX_OPEN_POSITIONS
-                    or sum(v.get("position") == side for v in opens.values()) >= MAX_SAME_DIRECTION
-                    or (mode == "sniper" and sum(v.get("mode") == "sniper" for v in opens.values()) >= SNIPER["max_open"])
-                    or sector_limit_reached(opens, sym, side)):
-                return
-            if meta.get("paused") or get_open_position(ex, sym) is not None:
-                return
-            equity_now, free_margin = get_balances(ex, force=True)
-            ok, gate = entries_allowed(ex)
-            if not ok:
-                note_block(sym, gate)
-                return
-            margin = compute_margin_scored(
-                equity=equity_now, sl_pct=sl_pct, signal_score=signal.get("score", 0),
-                free_margin=free_margin, risk_pct=risk_eff, leverage=lev_eff,
-                ai_prob=None if mode == "sniper" else ai_prob, ai_active=ai_state.AI_IS_ACTIVE,
-                min_margin_usdt=MIN_MARGIN_USDT, max_margin_usdt=MAX_MARGIN_USDT,
-                max_margin_pct_equity=MAX_MARGIN_PCT_EQUITY,
-            )
-            if margin <= 0:
-                note_block(sym, "margin_too_small")
-                log_paper_signal(sym, signal, "margin_too_small")
-                return
-            actual_price = get_current_price(ex, sym, 0)
-            if not actual_price or abs(actual_price - signal["price"]) / signal["price"] > max_slip:
-                reason = "slippage" if actual_price else "ticker_unavailable"
-                note_block(sym, reason)
-                log_paper_signal(sym, signal, reason)
-                return
-            d = 1 if side == "LONG" else -1
-            sl, tp = actual_price * (1 - d * sl_pct), actual_price * (1 + d * sl_pct * tp_rr)
-            success, info, entry, contracts = open_position(ex, sym, side, actual_price, sl, tp, margin, leverage=lev_eff)
-            now = time.time()
-            if success:
-                note_opened()
-                with state_lock:
-                    state[sym].update({
-                        "position": side, "entry": entry, "sl": sl, "tp": tp,
-                        "initial_sl": sl, "initial_risk": abs(entry - sl),
-                        "contracts": contracts, "initial_contracts": contracts,
-                        "margin": margin, "opened_ts": now, "leg_ts": now,
-                        "realized_pnl": 0.0, "realized_fees_est": 0.0,
-                        "planned_entry": actual_price, "last_notified_sl": None,
-                        "breakeven_hit": False, "partial_1_taken": False, "partial_2_taken": False,
-                        "regime": signal.get("regime", ""), "strategy": signal.get("strategy", ""),
-                        "mode": mode, "signal_score": signal.get("score", 0),
-                        "score_factors": signal.get("score_factors", {}),
-                        "volume_ratio": signal.get("volume_ratio", 0), "ker": signal.get("ker"),
-                    })
-            else:
-                note_block(sym, "open_failed")
-                with state_lock:
-                    state[sym]["last_exit_ts"] = now
-                    state[sym]["last_exit_mode"] = mode
-            save_state()
-        caption = msg_entry(sym, side, entry, sl, tp, margin, success,
-                            signal.get("regime", ""), signal.get("strategy", ""),
-                            equity_now, signal.get("score", 0), lev=lev_eff, mode=mode)
-        if not success:
-            caption += f"\n❌ {info}"
-        send(caption)
+        candidate_item = {
+            "sym": sym,
+            "signal": signal,
+            "mode": mode,
+            "pos_data": pos_data,
+            "ai_prob": ai_prob,
+            "score": float(signal.get("score", 0)),
+        }
+        if collected_candidates is not None:
+            collected_candidates.append(candidate_item)
+        else:
+            execute_ranked_entry(ex, candidate_item)
     except Exception as e:
         loop_info["last_error"] = f"{sym}: {str(e)[:150]}"
         log.error(f"[ERROR] {sym}: {e}")
@@ -858,7 +885,7 @@ def trading_loop():
     threading.Thread(target=watchdog, daemon=True).start()
     send(f"🚀 <b>تم تشغيل البوت {VERSION} (Binance)</b>\n━━━━━━━━━━━━━━━\n"
          f"⚙️ الوضع: {mode_str}\n🪙 العملات: {len(active_symbols)}\n"
-         f"📊 أقصى صفقات: {MAX_OPEN_POSITIONS}\n"
+         f"📊 أقصى صفقات: {EFFECTIVE_MAX_OPEN} (نفس الاتجاه: {EFFECTIVE_MAX_SAME_DIR})\n"
          f"💰 المخاطرة: {RISK_PCT_PER_TRADE}% | رافعة: {LEVERAGE}x\n"
          f"🎚️ البروفايل: {PROFILE_NAME} | القناص: {'مفعّل' if ENABLE_SNIPER else 'معطّل'}\n"
          f"🧠 AI المحلي: {'نشط ✅' if ai_state.AI_IS_ACTIVE else 'معطّل'} | حد الدرجة: {MIN_SIGNAL_SCORE}/100\n"
@@ -884,13 +911,29 @@ def trading_loop():
             if USE_BTC_FILTER:
                 btc_bias(ex)
             held_symbols = open_positions_snapshot()
+            collected_candidates = []
             for sym in sorted(active_symbols, key=lambda s: s not in held_symbols):
                 try:
-                    process_symbol(ex, sym)
+                    process_symbol(ex, sym, collected_candidates=collected_candidates)
                 except Exception as e:
                     cycle_errors += 1
                     loop_info["last_error"] = f"{sym}: {str(e)[:150]}"
                     log.error(f"[LOOP] {sym}: {e}")
+
+            if collected_candidates:
+                ranked_candidates = sorted(
+                    collected_candidates,
+                    key=lambda item: (item.get("score", 0), item.get("ai_prob") or 0.0),
+                    reverse=True,
+                )
+                for cand in ranked_candidates:
+                    try:
+                        execute_ranked_entry(ex, cand)
+                    except Exception as e:
+                        cycle_errors += 1
+                        loop_info["last_error"] = f"{cand.get('sym')}: {str(e)[:150]}"
+                        log.error(f"[RANKED ENTRY] {cand.get('sym')}: {e}")
+
             if time.time() - last_orphan_check >= ORPHAN_CHECK_SEC:
                 adopt_orphans(ex, active_symbols)
                 last_orphan_check = time.time()
