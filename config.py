@@ -7,8 +7,6 @@ from datetime import timezone, timedelta
 
 VERSION = "V55"
 
-
-
 KSA_TZ = timezone(timedelta(hours=3))
 
 def env_float(name, default):
@@ -206,7 +204,6 @@ SNIPER = {
     "max_open": 2,
     "max_entry_slip": 0.0018,
     "max_signal_age_sec": 110,
-    "min_ker": 0.29,
     "min_vol_mult": 1.40,
     "near_ema_pct": 0.0085,
 }
