@@ -1,3 +1,9 @@
+from datetime import datetime
+
+from config import (
+    LEVERAGE
+)
+
 
 def short(sym):
     try:
