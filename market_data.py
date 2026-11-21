@@ -15,6 +15,13 @@ from indicators import (
 
 log = logging.getLogger("bot")
 
+_data_cache = {}
+
+_btc_bias_cache = {
+    "ts": 0,
+    "value": "neutral"
+}
+
 
 def fetch_data(ex, sym, tf, limit=130):
     """يعيد مؤشرات محسوبة مرة لكل شمعة مغلقة، مع حذف FIFO عند امتلاء الكاش."""
