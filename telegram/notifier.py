@@ -1,30 +1,16 @@
-# notifier.py — طبقة تيليجرام: إرسال غير محجوب عبر queue + صياغة رسائل الدخول والخروج
-# لا تعتمد على exchange ولا على state (لتجنب الاستيراد الدائري)
+# telegram/notifier.py — إرسال غير محجوب عبر queue + إعادة تصدير دوال الرسائل
 import logging
 import queue
 import threading
 import requests
 
-from config import (
-    TELEGRAM_BOT_TOKEN,
-    AUTHORIZED_CHATS
-)
+from config import TELEGRAM_BOT_TOKEN, AUTHORIZED_CHATS
+from telegram.constants import STRAT_LABEL, REASONS
+from telegram.messages import short, fmt, msg_entry, msg_exit
 
 log = logging.getLogger("bot")
 
 _send_queue = queue.Queue(maxsize=1000)
-
-def send(...):
-    ...
-
-def _send_worker():
-    ...
-
-def start_sender():
-    ...
-
-def start_sender():
-    ...
 
 
 def send(msg, chat_id=None):
@@ -48,15 +34,14 @@ def _send_worker():
                     requests.post(
                         f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
                         json={"chat_id": cid, "text": msg, "parse_mode": "HTML"},
-                        timeout=10)
+                        timeout=10,
+                    )
                 except Exception as e:
                     log.warning(f"[TG SEND] {e}")
         except Exception as e:
             log.error(f"[TG WORKER] {e}")
 
 
-
 def start_sender():
-    """يشغّل thread الإرسال (كان في trading_loop: threading.Thread(target=_send_worker, daemon=True).start())."""
+    """يشغّل thread الإرسال في الخلفية."""
     threading.Thread(target=_send_worker, daemon=True).start()
-
