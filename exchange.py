@@ -40,10 +40,10 @@ def create_exchange():
     if not USE_SANDBOX and not ALLOW_LIVE_TRADING:
         raise RuntimeError("Live trading requires ALLOW_LIVE_TRADING=true")
     ex = ccxt.binanceusdm({
-        'apiKey': BINANCE_API_KEY,
-        'secret': BINANCE_SECRET,
-        'enableRateLimit': True,
-        'timeout': 20000,
+        "apiKey": BINANCE_API_KEY,
+        "secret": BINANCE_SECRET,
+        "enableRateLimit": True,
+        "timeout": 20000,
     })
     if USE_SANDBOX:
         ex.enable_demo_trading(True)
@@ -120,7 +120,7 @@ def get_balances(ex, force=False):
     except Exception as e:
         with _balance_lock:
             _balance_cache.pop(ex, None)
-        log.warning("[EQUITY] %s", type(e).__name__)
+        log.warning("[EQUITY] %s: %s", type(e).__name__, e)
         return 0.0, 0.0
 
 
