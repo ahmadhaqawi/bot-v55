@@ -1,19 +1,11 @@
-from datetime import datetime
-
-from config import LEVERAGE
-
-from telegram.constants import (
-    KSA_TZ,
-    STRAT_LABEL,
-    REASONS
-)
-KSA_TZ = timezone(timedelta(hours=3))
+# telegram/constants.py — الثوابت والتسميات العربية لرسائل تيليجرام
+from config import KSA_TZ
 
 STRAT_LABEL = {
     "pullback": "الارتداد",
     "breakout": "الاختراق",
     "adopted": "متبنّاة",
-    "legacy": "قديمة"
+    "legacy": "قديمة",
 }
 
 REASONS = {
