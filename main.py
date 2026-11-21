@@ -959,10 +959,24 @@ def trading_loop():
         time.sleep(max(8, SCAN_INTERVAL - (time.time() - start)))
 
 
-if __name__ == "__main__":
-    os.makedirs(DATA_DIR, exist_ok=True)
+# ==========================================
+# التشغيل الآمن مع Gunicorn
+# ==========================================
+def start_trading_bot():
+    """تشغيل البوت في الخلفية ليعمل مع Gunicorn أو التشغيل المباشر"""
     if not acquire_single_instance():
         log.error("نسخة أخرى من البوت تعمل بالفعل — إيقاف.")
         sys.exit(1)
-    threading.Thread(target=run_flask, daemon=True).start()
-    trading_loop()
+    
+    # تشغيل البوت في ثريد منفصل ليعمل بالتوازي مع Flask
+    threading.Thread(target=trading_loop, daemon=True).start()
+
+# التأكد من إنشاء مجلدات البيانات
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# 1. تشغيل البوت تلقائياً عند استيراد الملف (سواء عبر Gunicorn أو python main.py)
+start_trading_bot()
+
+# 2. إذا تم التشغيل محلياً (python main.py) نشغل Flask أيضاً
+if __name__ == "__main__":
+    run_flask()
