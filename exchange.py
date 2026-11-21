@@ -46,34 +46,7 @@ def verify_algo_support(ex):
         raise RuntimeError(
             f"ccxt الحالية لا تدعم Binance Algo endpoints: {missing}"
         )
-def create_exchange():
-    if not USE_SANDBOX and not ALLOW_LIVE_TRADING:
-        raise RuntimeError("Live trading requires ALLOW_LIVE_TRADING=true")
-    ex = ccxt.binanceusdm({
-        'apiKey': BINANCE_API_KEY, 'secret': BINANCE_SECRET,
-        'enableRateLimit': True, 'options': {'defaultType': 'future'}, 'timeout': 20000,
-    })
-    if USE_SANDBOX:
-        ex.set_sandbox_mode(True)
-    return ex
 
-
-def init_exchange():
-    ex = create_exchange()
-    ex.load_markets()
-    verify_algo_support(ex)
-    return ex
-
-
-def verify_algo_support(ex):
-    """Binance نقل الأوامر الشرطية (SL/TP) إلى Algo Service منذ ديسمبر 2025.
-    نتأكد عند البدء أن ccxt المثبتة تعرف هذه الـ endpoints، وإلا نفشل فوراً
-    بدل اكتشاف ذلك عند أول صفقة حقيقية."""
-    missing = [m for m in _ALGO_METHODS if not hasattr(ex, m)]
-    if missing:
-        raise RuntimeError(
-            f"ccxt الحالية لا تدعم Binance Algo endpoints: {missing} — "
-            "حدّثها: pip install -U ccxt")
 
 
 def refresh_prices(ex, symbols):
