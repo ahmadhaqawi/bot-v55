@@ -1,5 +1,12 @@
-from datetime import timezone, timedelta
+from datetime import datetime
 
+from config import LEVERAGE
+
+from telegram.constants import (
+    KSA_TZ,
+    STRAT_LABEL,
+    REASONS
+)
 KSA_TZ = timezone(timedelta(hours=3))
 
 STRAT_LABEL = {
