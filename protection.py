@@ -1,20 +1,19 @@
+# protection.py — إدارة أوامر الحماية الشرطية (SL/TP) وفتح وإغلاق المراكز (Binance Algo Service)
 import math
 import time
 import logging
 
 from config import (
     LEVERAGE,
-    MARGIN_MODE
+    MARGIN_MODE,
 )
-
 from exchange import (
     calculate_contracts,
-    get_open_position
+    get_open_position,
 )
-
-from notifier import (
+from telegram.notifier import (
     send,
-    short
+    short,
 )
 
 log = logging.getLogger("bot")
@@ -29,8 +28,7 @@ def _valid_trigger(value):
 
 
 def get_algos(ex, sym):
-    """الأوامر الشرطية المعلّقة (SL/TP) من Binance Algo Service.
-    نُعيد نفس الشكل الذي تتوقعه بقية الدوال (side بحروف صغيرة)."""
+    """الأوامر الشرطية المعلّقة (SL/TP) من Binance Algo Service."""
     market = ex.market(sym)
     res = ex.fapiPrivateGetOpenAlgoOrders({'symbol': market['id']})
     if isinstance(res, dict):
@@ -42,21 +40,26 @@ def get_algos(ex, sym):
         if str(o.get('algoType') or 'CONDITIONAL').upper() != 'CONDITIONAL':
             continue
         otype = str(o.get('orderType') or o.get('type') or '').upper()
-        out.append({"id": o.get('algoId'),
-                    "side": str(o.get("side") or "").lower(),
-                    "size": o.get("quantity"),
-                    "reduce_only": str(o.get("reduceOnly")).lower() == "true",
-                    "is_sl": otype in ("STOP_MARKET", "STOP"),
-                    "is_tp": otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT")})
+        out.append({
+            "id": o.get('algoId'),
+            "side": str(o.get("side") or "").lower(),
+            "size": o.get("quantity"),
+            "reduce_only": str(o.get("reduceOnly")).lower() == "true",
+            "is_sl": otype in ("STOP_MARKET", "STOP"),
+            "is_tp": otype in ("TAKE_PROFIT_MARKET", "TAKE_PROFIT"),
+        })
     return out
 
 
 def has_protection(ex, sym, close_side, contracts):
     """(has_sl, has_tp) أو (None, None) إذا تعذر الاستعلام."""
     try:
-        algos = [a for a in get_algos(ex, sym) if a["id"] and a["side"] == close_side
-                 and a["reduce_only"] and _valid_trigger(a["size"])
-                 and math.isclose(float(a["size"]), contracts, rel_tol=1e-9, abs_tol=1e-12)]
+        algos = [
+            a for a in get_algos(ex, sym)
+            if a["id"] and a["side"] == close_side
+            and a["reduce_only"] and _valid_trigger(a["size"])
+            and math.isclose(float(a["size"]), contracts, rel_tol=1e-9, abs_tol=1e-12)
+        ]
         return any(a["is_sl"] for a in algos), any(a["is_tp"] for a in algos)
     except Exception as e:
         log.warning(f"[PROTECTION UNKNOWN] {sym}: {e}")
@@ -87,10 +90,16 @@ def place_sl_tp(ex, sym, side, contracts, trigger, is_sl):
     trig_str = str(ex.price_to_precision(sym, trigger))
     amt_str = str(ex.amount_to_precision(sym, contracts))
     market = ex.market(sym)
-    req = {'algoType': 'CONDITIONAL', 'symbol': market['id'], 'side': side.upper(),
-           'type': 'STOP_MARKET' if is_sl else 'TAKE_PROFIT_MARKET',
-           'quantity': amt_str, 'triggerPrice': trig_str,
-           'reduceOnly': 'true', 'workingType': 'CONTRACT_PRICE'}
+    req = {
+        'algoType': 'CONDITIONAL',
+        'symbol': market['id'],
+        'side': side.upper(),
+        'type': 'STOP_MARKET' if is_sl else 'TAKE_PROFIT_MARKET',
+        'quantity': amt_str,
+        'triggerPrice': trig_str,
+        'reduceOnly': 'true',
+        'workingType': 'CONTRACT_PRICE',
+    }
     res = ex.fapiPrivatePostAlgoOrder(req)
     if not isinstance(res, dict) or not res.get("algoId"):
         raise Exception(f"algo rejected: {res}")
@@ -134,8 +143,12 @@ def replace_protection(ex, sym, close_side, contracts, sl, tp=None):
     sl_ok, tp_ok = protect_position(ex, sym, close_side, contracts, sl, tp)
     if not sl_ok:
         return False
-    ids = [a["id"] for a in old if a["id"] and a["reduce_only"] and a["side"] == close_side
-           and (a["is_sl"] or a["is_tp"]) and (not a["is_tp"] or (tp is not None and tp_ok))]
+    ids = [
+        a["id"] for a in old
+        if a["id"] and a["reduce_only"] and a["side"] == close_side
+        and (a["is_sl"] or a["is_tp"])
+        and (not a["is_tp"] or (tp is not None and tp_ok))
+    ]
     cancel_algo_ids(ex, sym, ids)
     return True
 
@@ -221,52 +234,3 @@ def open_position(ex, sym, side, price, sl, tp, margin, leverage=None):
     except Exception as e:
         log.error(f"[OPEN ERR] {sym}: {e}")
         return False, str(e)[:150], price, 0.0
-
-
-def fetch_data(ex, sym, tf, limit=130):
-    """يعيد مؤشرات محسوبة مرة لكل شمعة مغلقة، مع حذف FIFO عند امتلاء الكاش."""
-    key = (sym, tf, limit)
-    tf_ms = TF_MS[tf]
-    cached = _data_cache.get(key)
-    current = int(time.time() * 1000 // tf_ms) * tf_ms
-    if cached and cached[0] == current:
-        return cached[1]
-    try:
-        data = ex.fetch_ohlcv(sym, tf, limit=limit)
-        current = int(time.time() * 1000 // tf_ms) * tf_ms
-        if len(data) < 2 or data[-1][0] != current or data[-2][0] != current - tf_ms:
-            return pd.DataFrame()
-        df = to_df(data)
-        if tf in ("5m", "15m") and len(df) >= 70:
-            df.attrs["range_filter"] = calculate_range_filter(df)
-            df["ker_indicator"] = efficiency_ratio(df["close"], KER_PERIOD)
-        if len(_data_cache) >= 1024 and key not in _data_cache:
-            for _ in range(150):
-                _data_cache.pop(next(iter(_data_cache)), None)
-        _data_cache[key] = (current, df)
-        return df
-    except Exception as e:
-        log.warning(f"[OHLCV] {sym} {tf}: {e}")
-        return pd.DataFrame()
-
-
-def to_df(raw):
-    return add_indicators(pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"]))
-
-
-def btc_bias(ex):
-    if time.time() - _btc_bias_cache["ts"] < 120:
-        return _btc_bias_cache["value"]
-    val = "neutral"
-    try:
-        df = fetch_data(ex, "BTC/USDT:USDT", "1h")
-        if len(df) >= 60:
-            r = df.iloc[-2]
-            if r["close"] > r["ema50"] and r["ema21"] > r["ema50"] and r["ema9"] > r["ema21"]:
-                val = "up"
-            elif r["close"] < r["ema50"] and r["ema21"] < r["ema50"] and r["ema9"] < r["ema21"]:
-                val = "down"
-    except Exception as e:
-        log.warning(f"[BTC BIAS] {e}")
-    _btc_bias_cache.update({"ts": time.time(), "value": val})
-    return val
