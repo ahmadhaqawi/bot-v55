@@ -1,28 +1,22 @@
-# exchange.py — طبقة المنصة (Binance USDT-M Futures): اتصال، أسعار، رصيد، أوامر، حماية، بيانات
-# لا تحتوي أي منطق استراتيجية. تعتمد فقط على notifier و indicators و config.
-import math
-import time
-import logging
-import threading
-
-import ccxt
-import pandas as pd
-
-from config import (
-    BINANCE_API_KEY, BINANCE_SECRET, USE_SANDBOX, ALLOW_LIVE_TRADING,
-    LEVERAGE, MARGIN_MODE, KER_PERIOD, TF_MS,
+# exchange/ — طبقة المنصة (Binance USDT-M Futures).
+# يعيد تصدير كل الأسماء، فبقية المشروع تكتب كما هي: from exchange import get_equity, ...
+from .connection import _ALGO_METHODS, create_exchange, init_exchange, verify_algo_support
+from .prices import _price_cache, _valid_trigger, refresh_prices, get_current_price
+from .account import (
+    _balance_cache, _balance_lock, get_balances, get_equity,
+    contract_size, min_amount, calculate_contracts, get_open_position,
 )
-from telegram.notifier import send, short
-from indicators import add_indicators, calculate_range_filter, efficiency_ratio
+from .algos import get_algos, has_protection, cancel_algo_ids, cancel_pending
+from .protection import place_sl_tp, protect_position, replace_protection
+from .orders import close_full, set_leverage_checked, open_position
+from .history import get_actual_fees, get_exit_price
+from .data import _data_cache, _btc_bias_cache, fetch_data, to_df, btc_bias
 
-log = logging.getLogger("bot")
 
-# الكاشات تعيش هنا، والملفات الأخرى تستوردها بالاسم (نفس الكائن، لا نسخة)
-_data_cache = {}
-_price_cache = {}
-_balance_cache = {}
-_balance_lock = threading.Lock()
-_btc_bias_cache = {"ts": 0, "value": "neutral"}
+# exchange/connection.py — الاتصال بـ Binance والتحقق من دعم أوامر Algo
+import ccxt
+
+from config import BINANCE_API_KEY, BINANCE_SECRET, USE_SANDBOX, ALLOW_LIVE_TRADING
 
 # أسماء دوال ccxt الضمنية لـ Binance Algo Service (POST/DELETE /fapi/v1/algoOrder, GET open algo orders)
 _ALGO_METHODS = ("fapiPrivatePostAlgoOrder", "fapiPrivateDeleteAlgoOrder", "fapiPrivateGetOpenAlgoOrders")
@@ -58,6 +52,27 @@ def verify_algo_support(ex):
             "حدّثها: pip install -U ccxt")
 
 
+# exchange/prices.py — كاش الأسعار وجلبها
+import math
+import time
+import logging
+
+
+log = logging.getLogger("bot")
+
+
+# الكاش يعيش هنا، والملفات الأخرى تستوردها بالاسم (نفس الكائن، لا نسخة)
+_price_cache = {}
+
+
+def _valid_trigger(value):
+    try:
+        v = float(value or 0)
+        return math.isfinite(v) and v > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def refresh_prices(ex, symbols):
     try:
         tickers = ex.fetch_tickers(symbols)
@@ -88,6 +103,20 @@ def get_current_price(ex, sym, max_age=20):
     except Exception as e:
         log.warning(f"[PRICE] {sym}: {e}")
         return c[1] if c and max_age > 0 and time.time() - c[0] <= max_age else None
+
+
+# exchange/account.py — الرصيد، حجم العقد، الكمية، المركز المفتوح
+import math
+import time
+import logging
+import threading
+
+
+log = logging.getLogger("bot")
+
+
+_balance_cache = {}
+_balance_lock = threading.Lock()
 
 
 def get_balances(ex, force=False):
@@ -163,12 +192,13 @@ def get_open_position(ex, sym):
     return matches[0] if matches else None
 
 
-def _valid_trigger(value):
-    try:
-        v = float(value or 0)
-        return math.isfinite(v) and v > 0
-    except (TypeError, ValueError):
-        return False
+# exchange/algos.py — قراءة وإلغاء أوامر SL/TP الشرطية (Binance Algo Service)
+import math
+import logging
+
+from .prices import _valid_trigger
+
+log = logging.getLogger("bot")
 
 
 def get_algos(ex, sym):
@@ -226,6 +256,15 @@ def cancel_pending(ex, sym):
         log.warning(f"[CANCEL PENDING] {sym}: {e}")
 
 
+# exchange/protection.py — وضع واستبدال حماية SL/TP
+import time
+import logging
+
+from .algos import get_algos, cancel_algo_ids
+
+log = logging.getLogger("bot")
+
+
 def place_sl_tp(ex, sym, side, contracts, trigger, is_sl):
     trig_str = str(ex.price_to_precision(sym, trigger))
     amt_str = str(ex.amount_to_precision(sym, contracts))
@@ -281,6 +320,19 @@ def replace_protection(ex, sym, close_side, contracts, sl, tp=None):
            and (a["is_sl"] or a["is_tp"]) and (not a["is_tp"] or (tp is not None and tp_ok))]
     cancel_algo_ids(ex, sym, ids)
     return True
+
+
+# exchange/orders.py — فتح وإغلاق المراكز وضبط الرافعة
+import time
+import logging
+
+from config import LEVERAGE, MARGIN_MODE
+from telegram.notifier import send, short
+from .account import calculate_contracts, get_open_position
+from .algos import cancel_pending
+from .protection import protect_position
+
+log = logging.getLogger("bot")
 
 
 def close_full(ex, sym):
@@ -366,6 +418,12 @@ def open_position(ex, sym, side, price, sl, tp, margin, leverage=None):
         return False, str(e)[:150], price, 0.0
 
 
+# exchange/history.py — الرسوم الفعلية وسعر الخروج من سجل التنفيذات
+import logging
+
+log = logging.getLogger("bot")
+
+
 def get_actual_fees(ex, sym, pos_data):
     """مجموع الرسوم الفعلية (USDT). None إذا لا تتوفر أو للمركز المتبنّى."""
     if (pos_data.get("strategy") or "") == "adopted" or not pos_data.get("opened_ts"):
@@ -406,6 +464,22 @@ def get_exit_price(ex, sym, pos_data):
     except Exception as e:
         log.warning(f"[EXIT PRICE] {sym}: {e}")
     return None
+
+
+# exchange/data.py — شموع OHLCV مع المؤشرات، واتجاه BTC
+import time
+import logging
+
+import pandas as pd
+
+from config import KER_PERIOD, TF_MS
+from indicators import add_indicators, calculate_range_filter, efficiency_ratio
+
+log = logging.getLogger("bot")
+
+
+_data_cache = {}
+_btc_bias_cache = {"ts": 0, "value": "neutral"}
 
 
 def fetch_data(ex, sym, tf, limit=130):
