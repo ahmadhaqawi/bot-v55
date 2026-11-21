@@ -58,7 +58,6 @@ from core.state import (
 )
 from core.journal import paper_stats_text, stats_text
 from core.diagnostics import _last_reason, diag, diag_lock, label, loop_info, universe_info
-from core.trade_finalize import finalize_trade, floating_pnl_cached
 from exchange import _btc_bias_cache, close_full, contract_size, get_current_price, get_equity
 from telegram.notifier import STRAT_LABEL, fmt, send, short
 from backup import backup_to_telegram
