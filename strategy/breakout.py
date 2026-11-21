@@ -1,6 +1,13 @@
-# Breakout Strategy
+# strategy/breakout.py — استراتيجية الاختراق (Breakout)
+from config import (
+    BO_LOOKBACK, BO_VOL_MULT, BO_BODY_POS,
+    BO_RSI_LONG_MIN, BO_RSI_LONG_MAX,
+    BO_RSI_SHORT_MIN, BO_RSI_SHORT_MAX, BO_MAX_EXT_ATR,
+)
+from strategy.regime import _make_signal
 
-  def breakout_signal(ctx, df_15m):
+
+def breakout_signal(ctx, df_15m):
     last, last_1h = ctx["last"], ctx["last_1h"]
     window = df_15m.iloc[-(BO_LOOKBACK + 2):-2]
     hh, ll = float(window["high"].max()), float(window["low"].min())
