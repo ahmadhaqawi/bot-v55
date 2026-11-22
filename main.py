@@ -28,6 +28,11 @@ from config import (
     USE_AI_ENTRY_FILTER, BACKUP_INTERVAL_SEC, AI_MIN_PROB_LONG, AI_MIN_PROB_SHORT,
     PROFILE_NAME, PROFILE_WARNING, ENABLE_SNIPER, SNIPER_ONLY, SNIPER,
     MIN_SIGNAL_SCORE,
+    MIN_ENTRY_QUALITY, MIN_ENTRY_QUALITY_PULLBACK,
+    ENABLE_PULLBACK, PULLBACK_ALLOWED_REGIMES,
+    SHORT_REQUIRE_STRONG_DOWN, SHORT_ALLOWED_REGIMES,
+    SHORT_MIN_SCORE, SHORT_REQUIRE_BTC_DOWN,
+    WEAK_TREND_MIN_SCORE, WEAK_TREND_RF_RQK_LONG_ONLY,
 )
 from exchange import (
     _price_cache, _valid_trigger, init_exchange, refresh_prices,
@@ -120,6 +125,58 @@ def acquire_single_instance():
 # ==========================================
 # إعدادات القناص والفلاتر
 # ==========================================
+def _extract_entry_quality(signal):
+    factors = signal.get("score_factors") or {}
+    for k in ("f_entry_quality", "entry_quality"):
+        if signal.get(k) is not None:
+            try:
+                return int(signal.get(k))
+            except (TypeError, ValueError):
+                pass
+        if factors.get(k) is not None:
+            try:
+                return int(factors.get(k))
+            except (TypeError, ValueError):
+                pass
+    return 0
+
+
+def post30_signal_filters_ok(signal, bias="neutral"):
+    side = str(signal.get("side", "")).upper()
+    strategy = str(signal.get("strategy", "")).lower()
+    regime = str(signal.get("regime", "")).lower()
+    score = float(signal.get("score", 0.0))
+    entry_quality = _extract_entry_quality(signal)
+    btc_dir = str(bias or "").lower()
+
+    if strategy == "pullback":
+        if not ENABLE_PULLBACK:
+            return False, "pullback_disabled"
+        if regime not in PULLBACK_ALLOWED_REGIMES:
+            return False, "pullback_regime"
+        if entry_quality < MIN_ENTRY_QUALITY_PULLBACK:
+            return False, "pullback_low_quality"
+
+    if entry_quality < MIN_ENTRY_QUALITY:
+        return False, "low_entry_quality"
+
+    if side == "SHORT":
+        if SHORT_REQUIRE_STRONG_DOWN and regime not in SHORT_ALLOWED_REGIMES:
+            return False, "short_not_strong_down"
+        if score < SHORT_MIN_SCORE:
+            return False, "short_score_low"
+        if SHORT_REQUIRE_BTC_DOWN and btc_dir != "down":
+            return False, "short_btc_not_down"
+
+    if regime == "weak_trend":
+        if score < WEAK_TREND_MIN_SCORE:
+            return False, "weak_trend_score_low"
+        if WEAK_TREND_RF_RQK_LONG_ONLY and not (strategy == "rf_rqk" and side == "LONG"):
+            return False, "weak_trend_not_rf_rqk_long"
+
+    return True, ""
+
+
 def sniper_filters_ok(df_entry, current_price, signal_price, ker, vol_ratio):
     if ker is None or ker < SNIPER["min_ker"]:
         return False, "low_ker_sniper"
@@ -633,12 +690,18 @@ def process_symbol(ex, sym, collected_candidates=None):
             note_block(sym, "sector_limit")
             log_paper_signal(sym, signal, "sector_limit")
             return
+        bias = btc_bias(ex) if USE_BTC_FILTER else "neutral"
         if USE_BTC_FILTER:
-            bias = btc_bias(ex)
             if (side == "LONG" and bias == "down") or (side == "SHORT" and bias == "up"):
                 note_block(sym, "btc_filter")
                 log_paper_signal(sym, signal, "btc_filter")
                 return
+
+        p30_ok, p30_reason = post30_signal_filters_ok(signal, bias=bias)
+        if not p30_ok:
+            note_block(sym, p30_reason)
+            log_paper_signal(sym, signal, p30_reason)
+            return
 
         m_ok, m_reason = market_filters_ok(ex, sym, side)
         if not m_ok:
