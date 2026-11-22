@@ -100,14 +100,14 @@ RR_RATIO = 2.3
 MIN_SL_PCT = 0.0065
 MAX_SL_PCT = 0.032
 TRAIL_ATR_MULT = 1.05
-BE_TRIGGER_R = 0.9
+BE_TRIGGER_R = env_float("BE_TRIGGER_R", 1.15)
 FALLBACK_SL_PCT = 0.017
 
 PARTIAL1_R, PARTIAL1_PCT = 1.3, 0.40
 PARTIAL2_R, PARTIAL2_PCT = 2.1, 0.50
 
 FEE_RATE = 0.0005
-BE_FEE_BUFFER = min(0.05, max(2 * FEE_RATE, env_float("BE_FEE_BUFFER", 0.0012)))
+BE_FEE_BUFFER = min(0.05, max(2 * FEE_RATE, env_float("BE_FEE_BUFFER", 0.0014)))
 FLOATING_FUNDING_BUFFER_PCT = max(0.0, env_float("FLOATING_FUNDING_BUFFER_PCT", 0.0))
 DAILY_LOSS_LIMIT_PCT = env_float("DAILY_LOSS_LIMIT_PCT", 4.0)
 DAILY_PROFIT_TARGET_PCT = env_float("DAILY_PROFIT_TARGET_PCT", 6.0)
@@ -187,14 +187,14 @@ SNIPER = {
     "tfs": ("5m", "15m", "1h"),
     "leverage": int(env_float("SNIPER_LEVERAGE", 5)),
     "risk_pct": env_float("SNIPER_RISK_PCT", 0.32),
-    "min_score": int(env_float("SNIPER_MIN_SCORE", 70)), 
+    "min_score": int(env_float("SNIPER_MIN_SCORE", 70)),
     "min_ker": 0.20,
     "atr_sl_mult": 1.18,
     "rr": 1.85,
     "min_sl": 0.0048,
     "max_sl": 0.0145,
     "trail_atr": 0.68,
-    "be_r": 0.48,
+    "be_r": env_float("SNIPER_BE_R", 0.72),
     "p1_r": 0.80,
     "p1_pct": 0.55,
     "p2_r": 1.40,
@@ -239,6 +239,31 @@ BO_RSI_SHORT_MIN = env_float("BO_RSI_SHORT_MIN", 28)
 BO_RSI_SHORT_MAX = env_float("BO_RSI_SHORT_MAX", 48)
 
 ENABLE_KER_FILTER = env_flag("ENABLE_KER_FILTER", True)
+
+# ==========================================
+# ضوابط ما بعد عينة الـ 30 صفقة (جودة الدخول، SHORT، weak_trend، والارتداد)
+# ==========================================
+MIN_ENTRY_QUALITY = int(env_float("MIN_ENTRY_QUALITY", 7))
+MIN_ENTRY_QUALITY_PULLBACK = int(env_float("MIN_ENTRY_QUALITY_PULLBACK", 10))
+
+ENABLE_PULLBACK = env_flag("ENABLE_PULLBACK", False)
+PULLBACK_ALLOWED_REGIMES = {
+    x.strip()
+    for x in os.getenv("PULLBACK_ALLOWED_REGIMES", "strong_trend_up,strong_trend_down").split(",")
+    if x.strip()
+}
+
+SHORT_REQUIRE_STRONG_DOWN = env_flag("SHORT_REQUIRE_STRONG_DOWN", True)
+SHORT_ALLOWED_REGIMES = {
+    x.strip()
+    for x in os.getenv("SHORT_ALLOWED_REGIMES", "strong_trend_down").split(",")
+    if x.strip()
+}
+SHORT_MIN_SCORE = env_float("SHORT_MIN_SCORE", 88)
+SHORT_REQUIRE_BTC_DOWN = env_flag("SHORT_REQUIRE_BTC_DOWN", True)
+
+WEAK_TREND_MIN_SCORE = env_float("WEAK_TREND_MIN_SCORE", 92)
+WEAK_TREND_RF_RQK_LONG_ONLY = env_flag("WEAK_TREND_RF_RQK_LONG_ONLY", True)
 
 WATCHDOG_SEC = 300
 TF_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000}
