@@ -66,6 +66,8 @@ log = logging.getLogger("bot")
 
 _lock_fh = None
 _tp_retry = {}
+_bg_started = False
+_bg_lock = threading.Lock()
 
 # حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config
 EFFECTIVE_MAX_OPEN = max(MAX_OPEN_POSITIONS, 8)
@@ -965,10 +967,28 @@ def trading_loop():
         time.sleep(max(8, SCAN_INTERVAL - (time.time() - start)))
 
 
+def ensure_background_started():
+    global _bg_started
+    with _bg_lock:
+        if _bg_started:
+            return
+        os.makedirs(DATA_DIR, exist_ok=True)
+        if not acquire_single_instance():
+            log.warning("[SINGLETON] Another bot instance holds lock; skipping background loop.")
+            return
+        _bg_started = True
+        threading.Thread(target=trading_loop, daemon=True).start()
+
+
+if __name__ != "__main__":
+    ensure_background_started()
+
+
 if __name__ == "__main__":
     os.makedirs(DATA_DIR, exist_ok=True)
     if not acquire_single_instance():
         log.error("نسخة أخرى من البوت تعمل بالفعل — إيقاف.")
         sys.exit(1)
+    _bg_started = True
     threading.Thread(target=run_flask, daemon=True).start()
     trading_loop()
