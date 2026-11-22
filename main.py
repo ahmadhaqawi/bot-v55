@@ -159,27 +159,33 @@ def get_trade_params(mode="swing"):
 def market_filters_ok(ex, sym, side):
     now = time.time()
     cached = _price_cache.get(sym)
-    if cached and (now - cached[0]) <= 15 and cached[2] and cached[3]:
+    last = bid = ask = None
+
+    if cached and (now - cached[0]) <= 15 and _valid_trigger(cached[1]):
         last, bid, ask = cached[1], cached[2], cached[3]
+    else:
+        try:
+            t = ex.fetch_ticker(sym)
+            raw_last = t.get("last")
+            if not _valid_trigger(raw_last):
+                return False, "ticker_unavailable"
+            last = float(raw_last)
+            bid = float(t["bid"]) if _valid_trigger(t.get("bid")) else None
+            ask = float(t["ask"]) if _valid_trigger(t.get("ask")) else None
+            _price_cache[sym] = (now, last, bid, ask)
+        except Exception as e:
+            log.warning(f"[FILTER TICKER] {sym}: {e}")
+            return False, "ticker_unavailable"
+
+    if bid is not None and ask is not None and ask >= bid:
         spread = (ask - bid) / last
         _last_spread[sym] = (now, spread)
         if spread > MAX_SPREAD_PCT:
             return False, "spread_high"
+    elif USE_SANDBOX:
+        _last_spread[sym] = (now, 0.0)
     else:
-        try:
-            t = ex.fetch_ticker(sym)
-            bid, ask, last = t.get("bid"), t.get("ask"), t.get("last")
-            if all(_valid_trigger(v) for v in (bid, ask, last)) and ask >= bid:
-                _price_cache[sym] = (now, float(last), float(bid), float(ask))
-                spread = (ask - bid) / last
-                _last_spread[sym] = (now, spread)
-                if spread > MAX_SPREAD_PCT:
-                    return False, "spread_high"
-            else:
-                return False, "ticker_unavailable"
-        except Exception as e:
-            log.warning(f"[FILTER TICKER] {sym}: {e}")
-            return False, "ticker_unavailable"
+        return False, "ticker_unavailable"
 
     f_cached = _funding_cache.get(sym)
     if f_cached and (now - f_cached[0]) < 900:
@@ -610,7 +616,7 @@ def process_symbol(ex, sym, collected_candidates=None):
             return
 
         tf_ms = TF_MS["5m" if mode == "sniper" else "15m"]
-        max_age_sec = SNIPER["max_signal_age_sec"] if mode == "sniper" else 900
+        max_age_sec = SNIPER["max_signal_age_sec"] if mode == "sniper" else 240
         if (time.time() * 1000 - (signal.get("candle_ts", 0) + tf_ms)) > max_age_sec * 1000:
             note_block(sym, "signal_expired")
             return
@@ -959,24 +965,10 @@ def trading_loop():
         time.sleep(max(8, SCAN_INTERVAL - (time.time() - start)))
 
 
-# ==========================================
-# التشغيل الآمن مع Gunicorn
-# ==========================================
-def start_trading_bot():
-    """تشغيل البوت في الخلفية ليعمل مع Gunicorn أو التشغيل المباشر"""
+if __name__ == "__main__":
+    os.makedirs(DATA_DIR, exist_ok=True)
     if not acquire_single_instance():
         log.error("نسخة أخرى من البوت تعمل بالفعل — إيقاف.")
         sys.exit(1)
-    
-    # تشغيل البوت في ثريد منفصل ليعمل بالتوازي مع Flask
-    threading.Thread(target=trading_loop, daemon=True).start()
-
-# التأكد من إنشاء مجلدات البيانات
-os.makedirs(DATA_DIR, exist_ok=True)
-
-# 1. تشغيل البوت تلقائياً عند استيراد الملف (سواء عبر Gunicorn أو python main.py)
-start_trading_bot()
-
-# 2. إذا تم التشغيل محلياً (python main.py) نشغل Flask أيضاً
-if __name__ == "__main__":
-    run_flask()
+    threading.Thread(target=run_flask, daemon=True).start()
+    trading_loop()
