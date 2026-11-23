@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """Scoring + signal evaluation."""
 from config import MIN_SIGNAL_SCORE, ENABLE_BREAKOUT
@@ -9,7 +8,7 @@ from strategy.rf_rqk import rf_rqk_signal
 
 
 def score_signal(signal, ctx, df_15m):
-    """يحسب درجة الفرصة (0-100). لا يعدّل القرار، فقط يعطي score."""
+    """يحسب درجة الفرصة (0-100) بدقة أعلى دون مكافأة ثابتة تضخّم الدرجة."""
     last = ctx["last"]
     h1 = ctx["last_1h"]
     h4 = ctx["last_4h"]
@@ -22,26 +21,26 @@ def score_signal(signal, ctx, df_15m):
         (side == "LONG" and h1["ema9"] > h1["ema21"] and h4["close"] > h4["ema50"])
         or (side == "SHORT" and h1["ema9"] < h1["ema21"] and h4["close"] < h4["ema50"])
     )
-    # تعديل: زيادة النقاط لضمان الوصول للحد الأدنى
-    factors["trend"] = 20 if aligned else 12
+    factors["trend"] = 20 if aligned else 5
     score += factors["trend"]
 
-    # 2) الحجم النسبي (0-15)
+    # 2) الحجم النسبي (0-15) — كبح القفزات المتطرفة المؤقتة
     vol_ratio = float(last["volume"] / last["vol_ma"]) if last["vol_ma"] else 0.0
-    factors["volume"] = min(15, max(0, int(7.5 * vol_ratio)))
+    effective_vol_ratio = min(vol_ratio, 3.0)
+    factors["volume"] = min(15, max(0, int(6.0 * effective_vol_ratio)))
     score += factors["volume"]
 
     # 3) قوة ADX (0-15)
     adx_value = float(last["adx"])
-    factors["adx"] = min(15, max(0, int((adx_value - 10) * 1.0))) # تعديل: أسهل في جمع النقاط
+    factors["adx"] = min(15, max(0, int((adx_value - 15) * 0.85)))
     score += factors["adx"]
 
     # 4) الزخم RSI (0-15)
     r = float(last["rsi"])
     if side == "LONG":
-        momentum = 15 if 45 <= r <= 70 else (10 if 35 <= r < 45 or 70 < r <= 75 else 6)
+        momentum = 15 if 48 <= r <= 68 else (10 if 38 <= r < 48 or 68 < r <= 72 else 4)
     else:
-        momentum = 15 if 30 <= r <= 55 else (10 if 25 <= r < 30 or 55 < r <= 65 else 6)
+        momentum = 15 if 32 <= r <= 52 else (10 if 28 <= r < 32 or 52 < r <= 62 else 4)
     factors["momentum"] = momentum
     score += momentum
 
@@ -53,23 +52,20 @@ def score_signal(signal, ctx, df_15m):
 
     # 6) نوع الاستراتيجية (0-15)
     strat = signal.get("strategy")
-    if strat in ("breakout", "rf_rqk"):
-        factors["setup"] = 15
+    if strat == "breakout":
+        factors["setup"] = 15 if factors["candle"] >= 4 else 8
     elif strat == "pullback":
         ideal_rsi = (45 <= r <= 65) if side == "LONG" else (35 <= r <= 55)
         strong_candle = factors.get("candle", 0) >= 5
-        factors["setup"] = 15 if (ideal_rsi and strong_candle) else 13
+        factors["setup"] = 15 if (ideal_rsi and strong_candle) else 10
     else:
-        factors["setup"] = 12
+        factors["setup"] = 8
     score += factors["setup"]
 
     # 7) جودة الدخول (0-10)
     extension = abs(float(last["close"]) - float(last["ema21"])) / max(float(last["atr"]), 1e-12)
-    factors["entry_quality"] = 10 if extension <= 0.8 else (7 if extension <= 1.4 else 3)
+    factors["entry_quality"] = 10 if extension <= 0.7 else (7 if extension <= 1.2 else 2)
     score += factors["entry_quality"]
-
-    # إعطاء نقاط أساسية (Bonus) لتجاوز السوق العرضي
-    score += 10 
 
     signal["score"] = min(100, int(score))
     signal["score_factors"] = factors
@@ -81,6 +77,9 @@ def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
     ctx, reason = build_context(df_15m, df_1h, df_4h, timeframe)
     if ctx is None:
         return None, {"common": reason}
+
+    if ctx.get("regime") == "weak_trend":
+        return None, {"common": "weak_trend_blocked"}
 
     candidates = []
     sig_pull, r_pull = pullback_signal(ctx)
@@ -107,6 +106,8 @@ def evaluate_signal(df_15m, df_1h, df_4h, timeframe="15m"):
         score_signal(s, ctx, df_15m)
 
     sig = max(candidates, key=lambda x: x.get("score", 0))
+    if sig.get("score_factors", {}).get("candle", 0) < 4:
+        return None, {"common": "weak_candle"}
     if sig["score"] < MIN_SIGNAL_SCORE:
         return None, {"common": "score_low"}
     return sig, {}
