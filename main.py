@@ -6,7 +6,7 @@ import json
 import time
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -140,6 +140,43 @@ def _extract_entry_quality(signal):
             except (TypeError, ValueError):
                 pass
     return 0
+
+
+def _format_candle_ts(raw_ts):
+    if raw_ts is None:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    try:
+        ts_num = float(raw_ts)
+        if ts_num > 1e11:
+            ts_num /= 1000.0
+        return datetime.fromtimestamp(ts_num, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except (TypeError, ValueError):
+        return str(raw_ts)
+
+
+def log_blocked_signal(sym, signal, reason, bias="neutral", mode="swing"):
+    sig = signal or {}
+    strategy = str(sig.get("strategy", "")).lower() or "unknown"
+    side = str(sig.get("side", "")).upper() or "NA"
+    regime = sig.get("regime", "NA")
+    score = sig.get("score", "NA")
+    entry_quality = _extract_entry_quality(sig)
+    raw_ts = sig.get("candle_ts") if sig.get("candle_ts") is not None else sig.get("timestamp")
+    candle_ts_str = _format_candle_ts(raw_ts)
+
+    log.info(
+        "[BLOCKED_SIGNAL] %s | mode=%s | candle=%s | strat=%s | side=%s | regime=%s | bias=%s | score=%s | eq=%s | reason=%s",
+        sym,
+        mode,
+        candle_ts_str,
+        strategy,
+        side,
+        regime,
+        bias,
+        score,
+        entry_quality,
+        reason,
+    )
 
 
 def post30_signal_filters_ok(signal, bias="neutral"):
@@ -700,6 +737,7 @@ def process_symbol(ex, sym, collected_candidates=None):
 
         p30_ok, p30_reason = post30_signal_filters_ok(signal, bias=bias)
         if not p30_ok:
+            log_blocked_signal(sym, signal, p30_reason, bias=bias, mode=mode)
             note_block(sym, p30_reason)
             log_paper_signal(sym, signal, p30_reason)
             return
