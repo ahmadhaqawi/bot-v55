@@ -1068,6 +1068,3 @@ if __name__ == "__main__":
     _bg_started = True
     threading.Thread(target=run_flask, daemon=True).start()
     trading_loop()
-```[cite: 4, 5, 6]
-
-تم التحقق من سلامة الصياغة البرمجية (`syntax`) للكود كاملاً، وهو جاهز للرفع إلى المستودع مع بقاء `ENABLE_SMC_FILTER=false` حتى اكتمال العينة الحالية.
