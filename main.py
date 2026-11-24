@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""main.py — نقطة الدخول والحلقة الرئيسية للبوت (V55 — Binance USDT-M Futures)."""[cite: 1]
+"""main.py — نقطة الدخول والحلقة الرئيسية للبوت (V55 — Binance USDT-M Futures)."""
 import os
 import sys
 import json
@@ -78,7 +78,7 @@ _bg_lock = threading.Lock()
 _blocked_lock = threading.Lock()
 _recent_blocked_signals = deque(maxlen=100)
 
-# حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config[cite: 1]
+# حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config
 EFFECTIVE_MAX_OPEN = max(MAX_OPEN_POSITIONS, 8)
 EFFECTIVE_MAX_SAME_DIR = max(MAX_SAME_DIRECTION, 6)
 
