@@ -215,9 +215,19 @@ def get_blocked_symbols_summary(limit=20):
 
     lines = [f"🚫 <b>العملات المحجوبة ({len(unique_latest)})</b>", "━━━━━━━━━━━━━━━"]
     for row in unique_latest:
+        side = str(row.get("side", "")).upper()
+        if side == "LONG":
+            side_txt = "🟢 شراء (LONG)"
+        elif side == "SHORT":
+            side_txt = "🔴 بيع (SHORT)"
+        else:
+            side_txt = f"⚪ {side or 'NA'}"
+
         lines.append(
-            f"• <code>{short(row['sym'])}</code> | استراتيجية: <code>{row['strategy']}</code> | "
-            f"السبب: <code>{row['reason']}</code> | الشمعة: <code>{row['candle']}</code>"
+            f"• <code>{short(row['sym'])}</code> | {side_txt} | "
+            f"استراتيجية: <code>{row['strategy']}</code> | "
+            f"السبب: <code>{row['reason']}</code> | "
+            f"الشمعة: <code>{row['candle']}</code>"
         )
     return "\n".join(lines)
 
