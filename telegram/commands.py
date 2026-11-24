@@ -1,5 +1,6 @@
 # telegram/commands.py — نصوص الأوامر (/status /pos /risk ...) والموزّع handle_command
 import json
+import sys
 import time
 import logging
 
@@ -69,6 +70,17 @@ from ai.local_ai import ai_analyze_trades
 import ai.local_ai as ai_state   # AI_IS_ACTIVE يتغير بعد التحميل: نقرأه كخاصية وليس باستيراد الاسم
 
 log = logging.getLogger("bot")
+
+
+def _blocked_summary_text():
+    try:
+        main_mod = sys.modules.get("main")
+        if main_mod is None or not hasattr(main_mod, "get_blocked_symbols_summary"):
+            import main as main_mod
+        return main_mod.get_blocked_symbols_summary()
+    except Exception as e:
+        log.warning(f"[CMD BLOCKED SUMMARY] {e}")
+        return "⚠️ تعذر جلب قائمة العملات المحجوبة حالياً."
 
 
 def unrealized(ex, sym, v):
@@ -312,6 +324,8 @@ def handle_command(ex, text, chat_id, active_symbols):
         send(stats_text(), chat_id)
     elif cmd == "/paper":
         send(paper_stats_text(), chat_id)
+    elif cmd in ("/blocked", "/حجب"):
+        send(_blocked_summary_text(), chat_id)
     elif cmd == "/config":
         send(config_text(), chat_id)
     elif cmd == "/universe":
@@ -373,6 +387,7 @@ def handle_command(ex, text, chat_id, active_symbols):
             "/status - نظرة عامة\n"
             "/why - أسباب الرفض\n"
             "/why BTC - عملة محددة\n"
+            "/blocked - العملات المحجوبة\n"
             "/config - الإعدادات\n"
             "/universe - العملات المفحوصة\n"
             "/pos - الصفقات المفتوحة\n"
