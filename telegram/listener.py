@@ -14,6 +14,19 @@ from backup import handle_document_restore
 log = logging.getLogger("bot")
 
 
+def _reply_blocked_symbols(chat_id):
+    try:
+        import sys
+        main_mod = sys.modules.get("main")
+        if main_mod is None or not hasattr(main_mod, "get_blocked_symbols_summary"):
+            import main as main_mod
+        summary = main_mod.get_blocked_symbols_summary()
+    except Exception as e:
+        log.warning(f"[TG BLOCKED SUMMARY] {e}")
+        summary = "⚠️ تعذر جلب قائمة العملات المحجوبة حالياً."
+    send(summary, chat_id)
+
+
 def telegram_listener(active_symbols):
     if not TELEGRAM_BOT_TOKEN or not AUTHORIZED_CHATS:
         return
@@ -37,6 +50,10 @@ def telegram_listener(active_symbols):
                     handle_document_restore(msg, chat_id, ex2)
                     continue
                 if not text.startswith("/"):
+                    continue
+                cmd = text.strip().split()[0].split("@")[0].lower()
+                if cmd in ("/blocked", "/حجب"):
+                    _reply_blocked_symbols(chat_id)
                     continue
                 try:
                     handle_command(ex2, text, chat_id, active_symbols)
