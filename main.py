@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""main.py — نقطة الدخول والحلقة الرئيسية للبوت (V55 — Binance USDT-M Futures)."""
+"""main.py — نقطة الدخول والحلقة الرئيسية للبوت (V55 — Binance USDT-M Futures)."""[cite: 1]
 import os
 import sys
 import json
 import time
 import logging
 import threading
+from collections import deque
 from datetime import datetime, timezone
 
 import numpy as np
@@ -74,8 +75,10 @@ _lock_fh = None
 _tp_retry = {}
 _bg_started = False
 _bg_lock = threading.Lock()
+_blocked_lock = threading.Lock()
+_recent_blocked_signals = deque(maxlen=100)
 
-# حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config
+# حدود مرنة لزيادة الفرص مع الحفاظ على أي حد أعلى قادم من config[cite: 1]
 EFFECTIVE_MAX_OPEN = max(MAX_OPEN_POSITIONS, 8)
 EFFECTIVE_MAX_SAME_DIR = max(MAX_SAME_DIRECTION, 6)
 
@@ -164,6 +167,21 @@ def log_blocked_signal(sym, signal, reason, bias="neutral", mode="swing"):
     raw_ts = sig.get("candle_ts") if sig.get("candle_ts") is not None else sig.get("timestamp")
     candle_ts_str = _format_candle_ts(raw_ts)
 
+    entry = {
+        "sym": sym,
+        "mode": mode,
+        "candle": candle_ts_str,
+        "strategy": strategy,
+        "side": side,
+        "regime": regime,
+        "bias": bias,
+        "score": score,
+        "eq": entry_quality,
+        "reason": reason,
+    }
+    with _blocked_lock:
+        _recent_blocked_signals.append(entry)
+
     log.info(
         "[BLOCKED_SIGNAL] %s | mode=%s | candle=%s | strat=%s | side=%s | regime=%s | bias=%s | score=%s | eq=%s | reason=%s",
         sym,
@@ -177,6 +195,31 @@ def log_blocked_signal(sym, signal, reason, bias="neutral", mode="swing"):
         entry_quality,
         reason,
     )
+
+
+def get_blocked_symbols_summary(limit=20):
+    with _blocked_lock:
+        items = list(_recent_blocked_signals)
+    if not items:
+        return "📭 لا توجد إشارات محجوبة مسجلة حالياً."
+
+    seen = set()
+    unique_latest = []
+    for item in reversed(items):
+        sym = item.get("sym")
+        if sym and sym not in seen:
+            seen.add(sym)
+            unique_latest.append(item)
+        if len(unique_latest) >= limit:
+            break
+
+    lines = [f"🚫 <b>العملات المحجوبة ({len(unique_latest)})</b>", "━━━━━━━━━━━━━━━"]
+    for row in unique_latest:
+        lines.append(
+            f"• <code>{short(row['sym'])}</code> | استراتيجية: <code>{row['strategy']}</code> | "
+            f"السبب: <code>{row['reason']}</code> | الشمعة: <code>{row['candle']}</code>"
+        )
+    return "\n".join(lines)
 
 
 def post30_signal_filters_ok(signal, bias="neutral"):
