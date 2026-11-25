@@ -243,10 +243,10 @@ ENABLE_KER_FILTER = env_flag("ENABLE_KER_FILTER", True)
 # ==========================================
 # ضوابط ما بعد عينة الـ 30 صفقة (جودة الدخول، SHORT، weak_trend، والارتداد)
 # ==========================================
-MIN_ENTRY_QUALITY = int(env_float("MIN_ENTRY_QUALITY", 7))
-MIN_ENTRY_QUALITY_PULLBACK = int(env_float("MIN_ENTRY_QUALITY_PULLBACK", 10))
+MIN_ENTRY_QUALITY = int(env_float("MIN_ENTRY_QUALITY", 6))
+MIN_ENTRY_QUALITY_PULLBACK = int(env_float("MIN_ENTRY_QUALITY_PULLBACK", 8))
 
-ENABLE_PULLBACK = env_flag("ENABLE_PULLBACK", False)
+ENABLE_PULLBACK = env_flag("ENABLE_PULLBACK", True)
 PULLBACK_ALLOWED_REGIMES = {
     x.strip()
     for x in os.getenv("PULLBACK_ALLOWED_REGIMES", "strong_trend_up,strong_trend_down").split(",")
@@ -259,11 +259,11 @@ SHORT_ALLOWED_REGIMES = {
     for x in os.getenv("SHORT_ALLOWED_REGIMES", "strong_trend_down").split(",")
     if x.strip()
 }
-SHORT_MIN_SCORE = env_float("SHORT_MIN_SCORE", 88)
+SHORT_MIN_SCORE = env_float("SHORT_MIN_SCORE", 76)
 SHORT_REQUIRE_BTC_DOWN = env_flag("SHORT_REQUIRE_BTC_DOWN", True)
 
-WEAK_TREND_MIN_SCORE = env_float("WEAK_TREND_MIN_SCORE", 92)
-WEAK_TREND_RF_RQK_LONG_ONLY = env_flag("WEAK_TREND_RF_RQK_LONG_ONLY", True)
+WEAK_TREND_MIN_SCORE = env_float("WEAK_TREND_MIN_SCORE", 80)
+WEAK_TREND_RF_RQK_LONG_ONLY = env_flag("WEAK_TREND_RF_RQK_LONG_ONLY", False)
 
 WATCHDOG_SEC = 300
 TF_MS = {"5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000}
