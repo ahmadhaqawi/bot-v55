@@ -213,7 +213,13 @@ def get_blocked_symbols_summary(limit=20):
         if len(unique_latest) >= limit:
             break
 
-    lines = [f"🚫 <b>العملات المحجوبة ({len(unique_latest)})</b>", "━━━━━━━━━━━━━━━"]
+    long_cnt = sum(1 for r in unique_latest if str(r.get("side", "")).upper() == "LONG")
+    short_cnt = sum(1 for r in unique_latest if str(r.get("side", "")).upper() == "SHORT")
+
+    lines = [
+        f"🚫 <b>العملات المحجوبة ({len(unique_latest)})</b> | 🟢 LONG: {long_cnt} • 🔴 SHORT: {short_cnt}",
+        "━━━━━━━━━━━━━━━",
+    ]
     for row in unique_latest:
         side = str(row.get("side", "")).upper()
         if side == "LONG":
@@ -230,7 +236,7 @@ def get_blocked_symbols_summary(limit=20):
             f"الشمعة: <code>{row['candle']}</code>"
         )
     return "\n".join(lines)
-
+    
 
 def post30_signal_filters_ok(signal, bias="neutral"):
     side = str(signal.get("side", "")).upper()
